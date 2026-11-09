@@ -363,8 +363,7 @@ def main(page: ft.Page):
             ft.Divider(height=20, color="transparent"),
             ft.Container(
                 content=ft.Row([table], scroll=ft.ScrollMode.ADAPTIVE, alignment=ft.MainAxisAlignment.CENTER),
-                alignment=ft.Alignment.CENTER,
-                expand=True
+                alignment=ft.Alignment.CENTER
             ) if open_sessions else ft.Text("No current sessions yet.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
         ])
         page.update()
@@ -713,13 +712,13 @@ def main(page: ft.Page):
             needs_update = False
             for dev_name, data in devices.items():
                 if data["status"] == "Busy" and data["mode"] == "fixed" and data["end_time"] <= time.time():
-                    current_border = device_ui[dev_name].border
+                    current_border = device_ui[dev_name].content.border
                     if current_border and current_border.top.color == ft.Colors.RED_500:
-                        device_ui[dev_name].border = ft.Border.all(2, ft.Colors.YELLOW_500)
-                        device_ui[dev_name].shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.YELLOW_500, offset=ft.Offset(0, 0))
+                        device_ui[dev_name].content.border = ft.Border.all(2, ft.Colors.YELLOW_500)
+                        device_ui[dev_name].content.shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.YELLOW_500, offset=ft.Offset(0, 0))
                     else:
-                        device_ui[dev_name].border = ft.Border.all(2, ft.Colors.RED_500)
-                        device_ui[dev_name].shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.RED_500, offset=ft.Offset(0, 0))
+                        device_ui[dev_name].content.border = ft.Border.all(2, ft.Colors.RED_500)
+                        device_ui[dev_name].content.shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.RED_500, offset=ft.Offset(0, 0))
                     needs_update = True
             
             if needs_update:
@@ -804,8 +803,7 @@ def main(page: ft.Page):
                 card.content.controls[4].visible = False
         page.update()
 
-    def open_time_popup(e):
-        device_name = e.control.data
+    def open_time_popup(device_name):
         if devices[device_name]["status"] == "Busy":
             end_session(device_name)
             return
@@ -886,7 +884,7 @@ def main(page: ft.Page):
                 players_dropdown,
                 ft.Button("START", on_click=start_custom, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup_from_back(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
@@ -935,7 +933,7 @@ def main(page: ft.Page):
                 players_dropdown,
                 ft.Button("CALCULATE & START", on_click=calculate_and_start, bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup_from_back(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
@@ -970,18 +968,12 @@ def main(page: ft.Page):
                 players_dropdown,
                 ft.Button("START", on_click=start_open, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup_from_back(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
         
         page.update()
-
-    def open_time_popup_from_back(device_name):
-        class FakeEvent:
-            def __init__(self, data):
-                self.control = type('obj', (object,), {'data': data})()
-        open_time_popup(FakeEvent(device_name))
 
     def create_device_card(device_name):
         timer_text = ft.Text("", size=22, weight=ft.FontWeight.BOLD, visible=False, font_family="monospace")
@@ -1004,7 +996,7 @@ def main(page: ft.Page):
             alignment=ft.Alignment.CENTER,
             padding=20,
             animate=ft.Animation(300, ft.AnimationCurve.EASE_IN_OUT),
-            on_click=lambda e: open_time_popup(e)
+            on_click=lambda e: open_time_popup(device_name)
         )
         
         device_ui[device_name] = card_content
