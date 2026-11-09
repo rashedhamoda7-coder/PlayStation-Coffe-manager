@@ -359,11 +359,12 @@ def main(page: ft.Page):
                 ft.Text("CURRENT HISTORY", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300),
                 ft.Container(expand=True),
                 ft.Button("END DAY", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=confirm_end_day),
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True),
             ft.Divider(height=20, color="transparent"),
             ft.Container(
                 content=ft.Row([table], scroll=ft.ScrollMode.ADAPTIVE, alignment=ft.MainAxisAlignment.CENTER),
-                alignment=ft.Alignment.CENTER
+                alignment=ft.Alignment.CENTER,
+                expand=True
             ) if open_sessions else ft.Text("No current sessions yet.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
         ])
         page.update()
@@ -533,7 +534,6 @@ def main(page: ft.Page):
             total_to_save = rounded_open
 
         else:
-            # تمديد الوقت أو الوقت حسب المصاري
             original_time = data.get("original_fixed_time", 0)
             if original_time == 0:
                 original_time = data["end_time"] - data["start_time"] if data["mode"] == "fixed" else 0
@@ -557,10 +557,8 @@ def main(page: ft.Page):
 
             rate = data.get("hourly_rate", 1200)
             
-            # حساب الوقت المتبقي (إذا لعب أقل من الوقت المحدد)
             if data["mode"] == "fixed":
                 if time.time() < data["end_time"]:
-                    # لعب أقل من الوقت المحدد
                     actual_seconds = time.time() - data["start_time"]
                     rounded_actual = int(round(actual_seconds / 3.0) * 3)
                     if rounded_actual == 0 and actual_seconds > 0: rounded_actual = 3
@@ -576,7 +574,6 @@ def main(page: ft.Page):
                     ]
                     total_to_save = total_seconds
                 else:
-                    # لعب الوقت المحدد أو أكتر
                     price_original = int((rounded_original / 12.0) * rate)
                     price_overtime = int((rounded_overtime / 12.0) * rate)
                     price_open = int((rounded_open / 12.0) * rate)
@@ -603,7 +600,6 @@ def main(page: ft.Page):
                     ])
                     total_to_save = total_seconds
             else:
-                # open mode
                 price_original = int((rounded_original / 12.0) * rate)
                 price_overtime = int((rounded_overtime / 12.0) * rate)
                 price_open = int((rounded_open / 12.0) * rate)
@@ -717,13 +713,13 @@ def main(page: ft.Page):
             needs_update = False
             for dev_name, data in devices.items():
                 if data["status"] == "Busy" and data["mode"] == "fixed" and data["end_time"] <= time.time():
-                    current_border = device_ui[dev_name].content.border
+                    current_border = device_ui[dev_name].border
                     if current_border and current_border.top.color == ft.Colors.RED_500:
-                        device_ui[dev_name].content.border = ft.Border.all(2, ft.Colors.YELLOW_500)
-                        device_ui[dev_name].content.shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.YELLOW_500, offset=ft.Offset(0, 0))
+                        device_ui[dev_name].border = ft.Border.all(2, ft.Colors.YELLOW_500)
+                        device_ui[dev_name].shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.YELLOW_500, offset=ft.Offset(0, 0))
                     else:
-                        device_ui[dev_name].content.border = ft.Border.all(2, ft.Colors.RED_500)
-                        device_ui[dev_name].content.shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.RED_500, offset=ft.Offset(0, 0))
+                        device_ui[dev_name].border = ft.Border.all(2, ft.Colors.RED_500)
+                        device_ui[dev_name].shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.RED_500, offset=ft.Offset(0, 0))
                     needs_update = True
             
             if needs_update:
@@ -890,7 +886,7 @@ def main(page: ft.Page):
                 players_dropdown,
                 ft.Button("START", on_click=start_custom, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(e), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup_from_back(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
@@ -939,7 +935,7 @@ def main(page: ft.Page):
                 players_dropdown,
                 ft.Button("CALCULATE & START", on_click=calculate_and_start, bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(e), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup_from_back(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
@@ -974,12 +970,18 @@ def main(page: ft.Page):
                 players_dropdown,
                 ft.Button("START", on_click=start_open, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(e), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup_from_back(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
         
         page.update()
+
+    def open_time_popup_from_back(device_name):
+        class FakeEvent:
+            def __init__(self, data):
+                self.control = type('obj', (object,), {'data': data})()
+        open_time_popup(FakeEvent(device_name))
 
     def create_device_card(device_name):
         timer_text = ft.Text("", size=22, weight=ft.FontWeight.BOLD, visible=False, font_family="monospace")
@@ -1001,16 +1003,12 @@ def main(page: ft.Page):
             border_radius=20,
             alignment=ft.Alignment.CENTER,
             padding=20,
-            animate=ft.Animation(300, ft.AnimationCurve.EASE_IN_OUT)
+            animate=ft.Animation(300, ft.AnimationCurve.EASE_IN_OUT),
+            on_click=lambda e: open_time_popup(e)
         )
         
-        clickable_card = ft.GestureDetector(
-            content=card_content,
-            on_tap=open_time_popup,
-            data=device_name
-        )
-        device_ui[device_name] = clickable_card
-        return clickable_card
+        device_ui[device_name] = card_content
+        return card_content
 
     page.add(current_page)
     
