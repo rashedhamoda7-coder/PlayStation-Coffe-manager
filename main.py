@@ -363,7 +363,8 @@ def main(page: ft.Page):
             ft.Divider(height=20, color="transparent"),
             ft.Container(
                 content=ft.Row([table], scroll=ft.ScrollMode.ADAPTIVE, alignment=ft.MainAxisAlignment.CENTER),
-                alignment=ft.Alignment.CENTER
+                alignment=ft.Alignment.CENTER,
+                expand=True
             ) if open_sessions else ft.Text("No current sessions yet.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
         ])
         page.update()
@@ -516,121 +517,52 @@ def main(page: ft.Page):
     def end_session(device_name):
         data = devices[device_name]
         
-        if data["mode"] == "open" and data.get("original_fixed_time", 0) == 0:
-            open_time = time.time() - data["start_time"]
-            rounded_open = int(round(open_time / 3.0) * 3)
-            if rounded_open == 0 and open_time > 0: rounded_open = 3
-            
-            rate = data.get("hourly_rate", 1200)
-            total_price = int((rounded_open / 12.0) * rate)
-            
-            content_list = [
-                ft.Text(f"Device: {device_name}", size=18, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
-                ft.Divider(height=10, color=ft.Colors.GREY_800),
-                ft.Text(f"Total Open Time: {rounded_open} secs", size=16, color=ft.Colors.WHITE),
-                ft.Text(f"Final Price: {format_price(total_price)} SYP", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300)
-            ]
-            total_to_save = rounded_open
-
-        else:
-            original_time = data.get("original_fixed_time", 0)
-            if original_time == 0:
-                original_time = data["end_time"] - data["start_time"] if data["mode"] == "fixed" else 0
-                
-            overtime_time = data.get("overtime_time", 0)
-            if data["mode"] == "fixed" and time.time() > data["end_time"]:
-                overtime_time = time.time() - data["end_time"]
-                
-            open_time = 0
-            if data["mode"] == "open":
-                open_time = time.time() - data["start_time"]
-
-            rounded_original = int(round(original_time / 3.0) * 3)
-            if rounded_original == 0 and original_time > 0: rounded_original = 3
-
-            rounded_overtime = int(round(overtime_time / 3.0) * 3)
-            if rounded_overtime == 0 and overtime_time > 0: rounded_overtime = 3
-
-            rounded_open = int(round(open_time / 3.0) * 3)
-            if rounded_open == 0 and open_time > 0: rounded_open = 3
-
-            rate = data.get("hourly_rate", 1200)
-            
-            if data["mode"] == "fixed":
-                if time.time() < data["end_time"]:
-                    actual_seconds = time.time() - data["start_time"]
-                    rounded_actual = int(round(actual_seconds / 3.0) * 3)
-                    if rounded_actual == 0 and actual_seconds > 0: rounded_actual = 3
-                    
-                    total_price = int((rounded_actual / 12.0) * rate)
-                    total_seconds = rounded_actual
-                    
-                    content_list = [
-                        ft.Text(f"Device: {device_name}", size=18, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
-                        ft.Divider(height=10, color=ft.Colors.GREY_800),
-                        ft.Text(f"Time Played: {rounded_actual} secs", size=16, color=ft.Colors.WHITE),
-                        ft.Text(f"Final Price: {format_price(total_price)} SYP", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300)
-                    ]
-                    total_to_save = total_seconds
-                else:
-                    price_original = int((rounded_original / 12.0) * rate)
-                    price_overtime = int((rounded_overtime / 12.0) * rate)
-                    price_open = int((rounded_open / 12.0) * rate)
-                    
-                    total_price = price_original + price_overtime + price_open
-                    total_seconds = rounded_original + rounded_overtime + rounded_open
-
-                    content_list = [
-                        ft.Text(f"Device: {device_name}", size=18, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
-                        ft.Divider(height=10, color=ft.Colors.GREY_800),
-                        ft.Text(f"Original Time: {rounded_original} secs ({format_price(price_original)} SYP)", size=14, color=ft.Colors.GREY_400),
-                    ]
-                    
-                    if rounded_overtime > 0:
-                        content_list.append(ft.Text(f"Lost Time (Overtime): {rounded_overtime} secs ({format_price(price_overtime)} SYP)", size=14, color=ft.Colors.YELLOW_500))
-                        
-                    if rounded_open > 0:
-                        content_list.append(ft.Text(f"Open Time Added: {rounded_open} secs ({format_price(price_open)} SYP)", size=14, color=ft.Colors.BLUE_400))
-                        
-                    content_list.extend([
-                        ft.Divider(height=10, color=ft.Colors.GREY_800),
-                        ft.Text(f"Total Time: {total_seconds} secs", size=16, color=ft.Colors.WHITE),
-                        ft.Text(f"Final Price: {format_price(total_price)} SYP", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300)
-                    ])
-                    total_to_save = total_seconds
+        # حساب الوقت الفعلي اللي لعبه
+        if data["mode"] == "fixed":
+            actual_seconds = time.time() - data["start_time"]
+            # إذا لعب أكتر من الوقت المحدد، نحسب الوقت الإضافي
+            if time.time() > data["end_time"]:
+                actual_seconds = data["end_time"] - data["start_time"]
+                overtime_seconds = time.time() - data["end_time"]
             else:
-                price_original = int((rounded_original / 12.0) * rate)
-                price_overtime = int((rounded_overtime / 12.0) * rate)
-                price_open = int((rounded_open / 12.0) * rate)
-                
-                total_price = price_original + price_overtime + price_open
-                total_seconds = rounded_original + rounded_overtime + rounded_open
+                overtime_seconds = 0
+        elif data["mode"] == "open":
+            actual_seconds = time.time() - data["start_time"]
+            overtime_seconds = 0
 
-                content_list = [
-                    ft.Text(f"Device: {device_name}", size=18, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
-                    ft.Divider(height=10, color=ft.Colors.GREY_800),
-                    ft.Text(f"Original Time: {rounded_original} secs ({format_price(price_original)} SYP)", size=14, color=ft.Colors.GREY_400),
-                ]
-                
-                if rounded_overtime > 0:
-                    content_list.append(ft.Text(f"Lost Time (Overtime): {rounded_overtime} secs ({format_price(price_overtime)} SYP)", size=14, color=ft.Colors.YELLOW_500))
-                    
-                if rounded_open > 0:
-                    content_list.append(ft.Text(f"Open Time Added: {rounded_open} secs ({format_price(price_open)} SYP)", size=14, color=ft.Colors.BLUE_400))
-                    
-                content_list.extend([
-                    ft.Divider(height=10, color=ft.Colors.GREY_800),
-                    ft.Text(f"Total Time: {total_seconds} secs", size=16, color=ft.Colors.WHITE),
-                    ft.Text(f"Final Price: {format_price(total_price)} SYP", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300)
-                ])
-                total_to_save = total_seconds
+        # التقريب لأقرب 3 ثواني
+        rounded_actual = int(round(actual_seconds / 3.0) * 3)
+        if rounded_actual == 0 and actual_seconds > 0: rounded_actual = 3
+        
+        rounded_overtime = int(round(overtime_seconds / 3.0) * 3)
+        if rounded_overtime == 0 and overtime_seconds > 0: rounded_overtime = 3
+
+        rate = data.get("hourly_rate", 1200)
+        total_price = int((rounded_actual / 12.0) * rate) + int((rounded_overtime / 12.0) * rate)
+        total_seconds = rounded_actual + rounded_overtime
+
+        # بناء الفاتورة
+        content_list = [
+            ft.Text(f"Device: {device_name}", size=18, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
+            ft.Divider(height=10, color=ft.Colors.GREY_800),
+            ft.Text(f"Time Played: {rounded_actual} secs ({format_price(int((rounded_actual / 12.0) * rate))} SYP)", size=14, color=ft.Colors.GREY_400),
+        ]
+        
+        if rounded_overtime > 0:
+            content_list.append(ft.Text(f"Overtime: {rounded_overtime} secs ({format_price(int((rounded_overtime / 12.0) * rate))} SYP)", size=14, color=ft.Colors.YELLOW_500))
+            
+        content_list.extend([
+            ft.Divider(height=10, color=ft.Colors.GREY_800),
+            ft.Text(f"Total Time: {total_seconds} secs", size=16, color=ft.Colors.WHITE),
+            ft.Text(f"Final Price: {format_price(total_price)} SYP", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300)
+        ])
 
         receipt = ft.AlertDialog(
             title=ft.Text(f"RECEIPT - {device_name}", color=ft.Colors.GREEN_400, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
             bgcolor="#1E1E1E",
             inset_padding=ft.Padding.all(50),
             content=ft.Column(content_list, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
-            actions=[ft.TextButton("Close & Free Device", on_click=lambda e: reset_device_and_save(device_name, total_to_save, total_price, data["mode"], data.get("players", 1)), style=ft.ButtonStyle(color=ft.Colors.GREEN_400))],
+            actions=[ft.TextButton("Close & Free Device", on_click=lambda e: reset_device_and_save(device_name, total_seconds, total_price, data["mode"], data.get("players", 1)), style=ft.ButtonStyle(color=ft.Colors.GREEN_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         
@@ -712,13 +644,13 @@ def main(page: ft.Page):
             needs_update = False
             for dev_name, data in devices.items():
                 if data["status"] == "Busy" and data["mode"] == "fixed" and data["end_time"] <= time.time():
-                    current_border = device_ui[dev_name].content.border
+                    current_border = device_ui[dev_name].border
                     if current_border and current_border.top.color == ft.Colors.RED_500:
-                        device_ui[dev_name].content.border = ft.Border.all(2, ft.Colors.YELLOW_500)
-                        device_ui[dev_name].content.shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.YELLOW_500, offset=ft.Offset(0, 0))
+                        device_ui[dev_name].border = ft.Border.all(2, ft.Colors.YELLOW_500)
+                        device_ui[dev_name].shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.YELLOW_500, offset=ft.Offset(0, 0))
                     else:
-                        device_ui[dev_name].content.border = ft.Border.all(2, ft.Colors.RED_500)
-                        device_ui[dev_name].content.shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.RED_500, offset=ft.Offset(0, 0))
+                        device_ui[dev_name].border = ft.Border.all(2, ft.Colors.RED_500)
+                        device_ui[dev_name].shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.RED_500, offset=ft.Offset(0, 0))
                     needs_update = True
             
             if needs_update:
@@ -751,7 +683,7 @@ def main(page: ft.Page):
 
     def update_ui():
         for dev_name, ui_element in device_ui.items():
-            card = ui_element.content
+            card = ui_element
             if devices[dev_name]["status"] == "Busy":
                 is_time_up = False
                 if devices[dev_name]["mode"] == "fixed":
@@ -803,7 +735,8 @@ def main(page: ft.Page):
                 card.content.controls[4].visible = False
         page.update()
 
-    def open_time_popup(device_name):
+    def open_time_popup(e):
+        device_name = e.control.data
         if devices[device_name]["status"] == "Busy":
             end_session(device_name)
             return
@@ -884,7 +817,7 @@ def main(page: ft.Page):
                 players_dropdown,
                 ft.Button("START", on_click=start_custom, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(e), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
@@ -933,7 +866,7 @@ def main(page: ft.Page):
                 players_dropdown,
                 ft.Button("CALCULATE & START", on_click=calculate_and_start, bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(e), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
@@ -968,7 +901,7 @@ def main(page: ft.Page):
                 players_dropdown,
                 ft.Button("START", on_click=start_open, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(e), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
@@ -996,7 +929,7 @@ def main(page: ft.Page):
             alignment=ft.Alignment.CENTER,
             padding=20,
             animate=ft.Animation(300, ft.AnimationCurve.EASE_IN_OUT),
-            on_click=lambda e: open_time_popup(device_name)
+            on_click=lambda e: open_time_popup(e)
         )
         
         device_ui[device_name] = card_content
