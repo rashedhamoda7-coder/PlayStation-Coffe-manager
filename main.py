@@ -124,6 +124,101 @@ def main(page: ft.Page):
         update_ui()
         page.update()
 
+    def refresh_alerts_table():
+        alerts_container.controls.clear()
+        
+        for dev_name, data in devices.items():
+            if data["status"] == "Busy":
+                if data["mode"] == "fixed" and data["end_time"] <= time.time():
+                    alerts_container.controls.append(
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Text(f"{dev_name}", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_400, text_align=ft.TextAlign.CENTER),
+                                ft.Text("Time Ended!", size=14, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
+                                ft.Row([
+                                    ft.Button("LET THEM PLAY", bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, on_click=lambda e, d=dev_name: confirm_let_play(d)),
+                                    ft.Button("END", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=lambda e, d=dev_name: end_session(d))
+                                ], alignment=ft.MainAxisAlignment.CENTER, spacing=10)
+                            ], alignment=ft.MainAxisAlignment.CENTER, spacing=5),
+                            bgcolor="#2A0000",
+                            padding=15,
+                            border_radius=10,
+                            border=ft.Border.all(1, ft.Colors.RED_500),
+                            width=300
+                        )
+                    )
+        if len(alerts_container.controls) == 0:
+            alerts_container.controls.append(ft.Text("No active alerts", color=ft.Colors.GREY_500, text_align=ft.TextAlign.CENTER))
+        page.update()
+
+    # --- دالة الـ End Session (مصلحة) ---
+    def end_session(device_name):
+        data = devices[device_name]
+        
+        if data["mode"] == "fixed":
+            actual_seconds = time.time() - data["start_time"]
+            if time.time() > data["end_time"]:
+                actual_seconds = data["end_time"] - data["start_time"]
+                overtime_seconds = time.time() - data["end_time"]
+            else:
+                overtime_seconds = 0
+        elif data["mode"] == "open":
+            actual_seconds = time.time() - data["start_time"]
+            overtime_seconds = 0
+        else:
+            return
+
+        rounded_actual = int(round(actual_seconds / 3.0) * 3)
+        if rounded_actual == 0 and actual_seconds > 0: rounded_actual = 3
+        
+        rounded_overtime = int(round(overtime_seconds / 3.0) * 3)
+        if rounded_overtime == 0 and overtime_seconds > 0: rounded_overtime = 3
+
+        rate = data.get("hourly_rate", 1200)
+        total_price = int((rounded_actual / 12.0) * rate) + int((rounded_overtime / 12.0) * rate)
+        total_seconds = rounded_actual + rounded_overtime
+
+        content_list = [
+            ft.Text(f"Device: {device_name}", size=18, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
+            ft.Divider(height=10, color=ft.Colors.GREY_800),
+            ft.Text(f"Time Played: {rounded_actual} secs ({format_price(int((rounded_actual / 12.0) * rate))} SYP)", size=14, color=ft.Colors.GREY_400),
+        ]
+        
+        if rounded_overtime > 0:
+            content_list.append(ft.Text(f"Overtime: {rounded_overtime} secs ({format_price(int((rounded_overtime / 12.0) * rate))} SYP)", size=14, color=ft.Colors.YELLOW_500))
+            
+        content_list.extend([
+            ft.Divider(height=10, color=ft.Colors.GREY_800),
+            ft.Text(f"Total Time: {total_seconds} secs", size=16, color=ft.Colors.WHITE),
+            ft.Text(f"Final Price: {format_price(total_price)} SYP", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300)
+        ])
+
+        receipt = ft.AlertDialog(
+            title=ft.Text(f"RECEIPT - {device_name}", color=ft.Colors.GREEN_400, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            bgcolor="#1E1E1E",
+            inset_padding=ft.Padding.all(50),
+            content=ft.Column(content_list, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
+            actions=[ft.TextButton("Close & Free Device", on_click=lambda e: reset_device_and_save(device_name, total_seconds, total_price, data["mode"], data.get("players", 1)), style=ft.ButtonStyle(color=ft.Colors.GREEN_400))],
+            actions_alignment=ft.MainAxisAlignment.CENTER,
+        )
+        
+        page.dialog = receipt
+        receipt.open = True
+        page.update()
+
+    def reset_device_and_save(device_name, played_seconds, total_price, mode, players):
+        mins, secs = divmod(int(played_seconds), 60)
+        actual_time_played = f"{mins} mins {secs} secs"
+        save_history(device_name, actual_time_played, total_price, mode, players, is_closed=False)
+        
+        devices[device_name] = {"status": "Available", "mode": None, "end_time": None, "start_time": None, "players": 1, "hourly_rate": 1200, "accumulated_time": 0, "original_fixed_time": 0, "overtime_time": 0}
+        notified_devices.discard(device_name)
+        save_data() 
+        
+        page.pop_dialog()
+        update_ui()
+        refresh_alerts_table()
+
     def show_pricing_view(e):
         page.drawer.open = False
         
@@ -251,7 +346,6 @@ def main(page: ft.Page):
                     actions=[ft.TextButton("CLOSE", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.RED_400))],
                 )
                 page.show_dialog(dialog)
-                
                 page.update()
 
             card = ft.Container(
@@ -361,7 +455,10 @@ def main(page: ft.Page):
                 ft.Button("END DAY", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=confirm_end_day),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True),
             ft.Divider(height=20, color="transparent"),
-            table if open_sessions else ft.Text("No current sessions yet.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
+            ft.Container(
+                content=ft.Column([table], scroll=ft.ScrollMode.ADAPTIVE),
+                alignment=ft.Alignment.CENTER
+            ) if open_sessions else ft.Text("No current sessions yet.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
         ])
         page.update()
 
@@ -508,101 +605,6 @@ def main(page: ft.Page):
         )
         page.show_dialog(dialog)
         
-        page.update()
-
-    def end_session(device_name):
-        data = devices[device_name]
-        
-        # حساب الوقت الفعلي اللي لعبه
-        if data["mode"] == "fixed":
-            actual_seconds = time.time() - data["start_time"]
-            # إذا لعب أكتر من الوقت المحدد، نحسب الوقت الإضافي
-            if time.time() > data["end_time"]:
-                actual_seconds = data["end_time"] - data["start_time"]
-                overtime_seconds = time.time() - data["end_time"]
-            else:
-                overtime_seconds = 0
-        elif data["mode"] == "open":
-            actual_seconds = time.time() - data["start_time"]
-            overtime_seconds = 0
-
-        # التقريب لأقرب 3 ثواني
-        rounded_actual = int(round(actual_seconds / 3.0) * 3)
-        if rounded_actual == 0 and actual_seconds > 0: rounded_actual = 3
-        
-        rounded_overtime = int(round(overtime_seconds / 3.0) * 3)
-        if rounded_overtime == 0 and overtime_seconds > 0: rounded_overtime = 3
-
-        rate = data.get("hourly_rate", 1200)
-        total_price = int((rounded_actual / 12.0) * rate) + int((rounded_overtime / 12.0) * rate)
-        total_seconds = rounded_actual + rounded_overtime
-
-        # بناء الفاتورة
-        content_list = [
-            ft.Text(f"Device: {device_name}", size=18, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
-            ft.Divider(height=10, color=ft.Colors.GREY_800),
-            ft.Text(f"Time Played: {rounded_actual} secs ({format_price(int((rounded_actual / 12.0) * rate))} SYP)", size=14, color=ft.Colors.GREY_400),
-        ]
-        
-        if rounded_overtime > 0:
-            content_list.append(ft.Text(f"Overtime: {rounded_overtime} secs ({format_price(int((rounded_overtime / 12.0) * rate))} SYP)", size=14, color=ft.Colors.YELLOW_500))
-            
-        content_list.extend([
-            ft.Divider(height=10, color=ft.Colors.GREY_800),
-            ft.Text(f"Total Time: {total_seconds} secs", size=16, color=ft.Colors.WHITE),
-            ft.Text(f"Final Price: {format_price(total_price)} SYP", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300)
-        ])
-
-        receipt = ft.AlertDialog(
-            title=ft.Text(f"RECEIPT - {device_name}", color=ft.Colors.GREEN_400, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
-            bgcolor="#1E1E1E",
-            inset_padding=ft.Padding.all(50),
-            content=ft.Column(content_list, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
-            actions=[ft.TextButton("Close & Free Device", on_click=lambda e: reset_device_and_save(device_name, total_seconds, total_price, data["mode"], data.get("players", 1)), style=ft.ButtonStyle(color=ft.Colors.GREEN_400))],
-            actions_alignment=ft.MainAxisAlignment.CENTER,
-        )
-        
-        page.dialog = receipt
-        receipt.open = True
-        page.update()
-
-    def reset_device_and_save(device_name, played_seconds, total_price, mode, players):
-        mins, secs = divmod(int(played_seconds), 60)
-        actual_time_played = f"{mins} mins {secs} secs"
-        save_history(device_name, actual_time_played, total_price, mode, players, is_closed=False)
-        
-        devices[device_name] = {"status": "Available", "mode": None, "end_time": None, "start_time": None, "players": 1, "hourly_rate": 1200, "accumulated_time": 0, "original_fixed_time": 0, "overtime_time": 0}
-        notified_devices.discard(device_name)
-        save_data() 
-        
-        page.pop_dialog()
-        update_ui()
-        refresh_alerts_table()
-
-    def refresh_alerts_table():
-        alerts_container.controls.clear()
-        
-        for dev_name, data in devices.items():
-            if data["status"] == "Busy":
-                if data["mode"] == "fixed" and data["end_time"] <= time.time():
-                    alerts_container.controls.append(
-                        ft.Container(
-                            content=ft.Row([
-                                ft.Text(f"{dev_name} OVERTIME!", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_400),
-                                ft.Text(f"Time Ended", size=14, color=ft.Colors.GREY_400),
-                                ft.Row([
-                                    ft.Button("LET THEM PLAY", bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, on_click=lambda e, d=dev_name: confirm_let_play(d)),
-                                    ft.Button("END", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=lambda e, d=dev_name: end_session(d))
-                                ], spacing=10)
-                            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                            bgcolor="#2A0000",
-                            padding=15,
-                            border_radius=10,
-                            border=ft.Border.all(1, ft.Colors.RED_500)
-                        )
-                    )
-        if len(alerts_container.controls) == 0:
-            alerts_container.controls.append(ft.Text("No active alerts", color=ft.Colors.GREY_500, text_align=ft.TextAlign.CENTER))
         page.update()
 
     def update_timers():
