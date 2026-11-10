@@ -689,20 +689,20 @@ def main(page: ft.Page):
                 
                 if is_time_up:
                     card.bgcolor = "#3E2700" 
-                    card.content.controls[1].value = f"● OVERTIME! ({devices[dev_name].get('players', 1)} Players)"
-                    card.content.controls[1].color = ft.Colors.YELLOW_500
+                    card.content.controls[0].content.controls[1].value = f"● OVERTIME! ({devices[dev_name].get('players', 1)} Players)"
+                    card.content.controls[0].content.controls[1].color = ft.Colors.YELLOW_500
                 else:
                     card.bgcolor = "#2A0000" 
                     card.border = ft.Border.all(2, ft.Colors.RED_500) 
                     card.shadow = ft.BoxShadow(blur_radius=15, color=ft.Colors.RED_500, offset=ft.Offset(0, 0)) 
-                    card.content.controls[1].value = f"● IN USE ({devices[dev_name].get('players', 1)} Players)"
-                    card.content.controls[1].color = ft.Colors.RED_400
+                    card.content.controls[0].content.controls[1].value = f"● IN USE ({devices[dev_name].get('players', 1)} Players)"
+                    card.content.controls[0].content.controls[1].color = ft.Colors.RED_400
                 
                 device_timer_text[dev_name].visible = True
                 
                 if devices[dev_name]["mode"] == "fixed" or devices[dev_name]["mode"] == "open":
-                    card.content.controls[3].visible = False
-                    card.content.controls[4].visible = True
+                    card.content.controls[1].visible = False # extend_btn
+                    card.content.controls[2].visible = True  # end_btn
                 
                 if devices[dev_name]["mode"] == "open":
                     elapsed = int(time.time() - devices[dev_name]["start_time"])
@@ -723,12 +723,12 @@ def main(page: ft.Page):
                 card.bgcolor = "#1E1E1E" 
                 card.border = ft.Border.all(1, ft.Colors.GREY_700) 
                 card.shadow = ft.BoxShadow(blur_radius=10, color=ft.Colors.BLACK_54, offset=ft.Offset(0, 4)) 
-                card.content.controls[1].value = "● AVAILABLE"
-                card.content.controls[1].color = ft.Colors.GREEN_400
+                card.content.controls[0].content.controls[1].value = "● AVAILABLE"
+                card.content.controls[0].content.controls[1].color = ft.Colors.GREEN_400
                 device_timer_text[dev_name].value = ""
                 device_timer_text[dev_name].visible = False
-                card.content.controls[3].visible = False
-                card.content.controls[4].visible = False
+                card.content.controls[1].visible = False
+                card.content.controls[2].visible = False
         page.update()
 
     def open_time_popup_from_card(device_name):
