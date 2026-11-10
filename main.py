@@ -979,6 +979,43 @@ def main(page: ft.Page):
         dialog_main.open = True
         page.update()
 
+    def open_time_popup_from_card(device_name):
+        if devices[device_name]["status"] == "Busy":
+            end_session(device_name)
+            return
+
+        def go_to_time_selection(e):
+            page.pop_dialog()
+            page.update()
+            open_custom_time_popup(device_name)
+
+        def go_to_cash_selection(e):
+            page.pop_dialog()
+            page.update()
+            open_cash_popup(device_name)
+
+        def go_to_open_time(e):
+            page.pop_dialog()
+            page.update()
+            open_open_time_popup(device_name)
+
+        dialog_main = ft.AlertDialog(
+            title=ft.Text(f"START SESSION - {device_name}", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            bgcolor="#1E1E1E",
+            inset_padding=ft.Padding.all(50),
+            content=ft.Column([
+                ft.Text("Select Start Method:", size=18, color=ft.Colors.WHITE),
+                ft.Button("START BY TIME", width=200, bgcolor="#333333", color=ft.Colors.WHITE, on_click=go_to_time_selection),
+                ft.Button("START BY CASH", width=200, bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE, on_click=go_to_cash_selection),
+                ft.Button("OPEN TIME", width=200, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, on_click=go_to_open_time)
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
+            actions=[ft.TextButton("CANCEL", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions_alignment=ft.MainAxisAlignment.CENTER,
+        )
+        page.show_dialog(dialog_main)
+        dialog_main.open = True
+        page.update()
+
     def create_device_card(device_name):
         timer_text = ft.Text("", size=22, weight=ft.FontWeight.BOLD, visible=False, font_family="monospace")
         device_timer_text[device_name] = timer_text
@@ -1005,6 +1042,7 @@ def main(page: ft.Page):
         
         device_ui[device_name] = card_content
         return card_content
+
 
     page.add(current_page)
     
