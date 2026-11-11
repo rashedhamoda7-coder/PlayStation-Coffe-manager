@@ -19,6 +19,47 @@ def main(page: ft.Page):
     def format_price(price):
         return f"{price:,}"
 
+    def build_sessions_table(sessions):
+        def cell(text, ratio, color=ft.Colors.WHITE, bold=False):
+            return ft.Container(
+                content=ft.Text(
+                    text,
+                    size=12,
+                    color=color,
+                    weight=ft.FontWeight.BOLD if bold else ft.FontWeight.NORMAL,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                expand=ratio,
+                alignment=ft.Alignment.CENTER,
+                padding=ft.Padding.all(4),
+            )
+
+        controls = [
+            ft.Row([
+                cell("Device", 2, ft.Colors.BLUE_300, True),
+                cell("Time", 3, ft.Colors.BLUE_300, True),
+                cell("Players", 2, ft.Colors.BLUE_300, True),
+                cell("Price", 3, ft.Colors.BLUE_300, True),
+            ], spacing=0),
+            ft.Divider(height=1, color=ft.Colors.GREY_800),
+        ]
+        for s in sessions:
+            controls.append(
+                ft.Row([
+                    cell(s.get("device", ""), 2),
+                    cell(s.get("time_played", ""), 3),
+                    cell(str(s.get("players", 1)), 2),
+                    cell(format_price(s.get("total_price", 0)) + " SYP", 3, ft.Colors.BLUE_300, True),
+                ], spacing=0)
+            )
+            controls.append(ft.Divider(height=1, color=ft.Colors.GREY_800))
+
+        return ft.Container(
+            content=ft.Column(controls, spacing=0),
+            border=ft.Border.all(1, ft.Colors.GREY_800),
+            border_radius=10,
+        )
+
     default_settings = {
         "price_1": 1200,
         "price_2": 2000,
@@ -211,41 +252,18 @@ def main(page: ft.Page):
             time_str = f"{total_hours}h {total_mins}m {total_secs}s"
             
             def show_daily_popup(e, day_date=date, day_sessions=info["sessions"]):
-                rows = []
-                for s in reversed(day_sessions):
-                    rows.append(
-                        ft.DataRow(
-                            cells=[
-                                ft.DataCell(ft.Text(s.get("device", ""), color=ft.Colors.WHITE)),
-                                ft.DataCell(ft.Text(s.get("time_played", ""), color=ft.Colors.WHITE)),
-                                ft.DataCell(ft.Text(str(s.get("players", 1)), color=ft.Colors.WHITE)),
-                                ft.DataCell(ft.Text(format_price(s.get("total_price", 0)) + " SYP", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD)),
-                            ]
-                        )
-                    )
-                
-                table = ft.DataTable(
-                    columns=[
-                        ft.DataColumn(ft.Text("Device", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Time", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Players", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Price", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD)),
-                    ],
-                    rows=rows,
-                    border=ft.Border.all(1, ft.Colors.GREY_800),
-                    border_radius=10,
-                    vertical_lines=ft.border.BorderSide(1, ft.Colors.GREY_800),
-                    horizontal_lines=ft.border.BorderSide(1, ft.Colors.GREY_800),
-                )
-                
+                table = build_sessions_table(list(reversed(day_sessions)))
+                screen_w = getattr(page, "width", None) or 360
+                dialog_width = min(480, screen_w - 40)
+
                 dialog = ft.AlertDialog(
                     title=ft.Text(f"Report: {day_date}", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD),
                     bgcolor="#1E1E1E",
+                    inset_padding=ft.Padding.all(10),
+                    content_padding=ft.Padding.all(10),
                     content=ft.Container(
-                        content=ft.Column([
-                            ft.Row([table], alignment=ft.MainAxisAlignment.CENTER)
-                        ], scroll=ft.ScrollMode.ADAPTIVE),
-                        width=480,
+                        content=ft.Column([table], scroll=ft.ScrollMode.ADAPTIVE),
+                        width=dialog_width,
                         height=400,
                     ),
                     actions=[ft.TextButton("CLOSE", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.RED_400))],
@@ -257,11 +275,9 @@ def main(page: ft.Page):
                 content=ft.Column([
                     ft.Text(date, size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                     ft.Divider(height=10, color=ft.Colors.GREY_800),
-                    ft.Row([
-                        ft.Text(f"Revenue: {format_price(info['total_revenue'])} SYP", color=ft.Colors.GREEN_400, size=14, weight=ft.FontWeight.BOLD),
-                        ft.Text(f"Time: {time_str}", color=ft.Colors.BLUE_300, size=14, weight=ft.FontWeight.BOLD),
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-                ]),
+                    ft.Text(f"Revenue: {format_price(info['total_revenue'])} SYP", color=ft.Colors.GREEN_400, size=14, weight=ft.FontWeight.BOLD),
+                    ft.Text(f"Time: {time_str}", color=ft.Colors.BLUE_300, size=14, weight=ft.FontWeight.BOLD),
+                ], horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
                 bgcolor="#1E1E1E",
                 padding=15,
                 border_radius=10,
@@ -324,46 +340,19 @@ def main(page: ft.Page):
             dialog_confirm.open = True
             page.update()
 
-        rows = []
-        for s in reversed(open_sessions):
-            rows.append(
-                ft.DataRow(
-                    cells=[
-                        ft.DataCell(ft.Text(s.get("device", ""), color=ft.Colors.WHITE)),
-                        ft.DataCell(ft.Text(s.get("time_played", ""), color=ft.Colors.WHITE)),
-                        ft.DataCell(ft.Text(str(s.get("players", 1)), color=ft.Colors.WHITE)),
-                        ft.DataCell(ft.Text(format_price(s.get("total_price", 0)) + " SYP", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD)),
-                    ]
-                )
-            )
-
-        table = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Device", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Time", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Players", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Price", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD)),
-            ],
-            rows=rows,
-            border=ft.Border.all(1, ft.Colors.GREY_800),
-            border_radius=10,
-            vertical_lines=ft.border.BorderSide(1, ft.Colors.GREY_800),
-            horizontal_lines=ft.border.BorderSide(1, ft.Colors.GREY_800),
-        )
+        table = build_sessions_table(list(reversed(open_sessions)))
 
         current_page.controls.clear()
         current_page.controls.extend([
             ft.Row([
                 ft.IconButton(icon=ft.Icons.ARROW_BACK, on_click=show_devices_view, icon_color=ft.Colors.WHITE),
-                ft.Text("CURRENT HISTORY", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300),
-            ], alignment=ft.MainAxisAlignment.START),
-            ft.Row([
-                ft.Button("END DAY", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=confirm_end_day, width=150),
-            ], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Column([
+                    ft.Text("CURRENT HISTORY", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300),
+                    ft.Button("END DAY", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=confirm_end_day),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+            ], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.START),
             ft.Divider(height=20, color="transparent"),
-            ft.Row([
-                ft.Column([table], scroll=ft.ScrollMode.ADAPTIVE)
-            ], scroll=ft.ScrollMode.ADAPTIVE, expand=True) if open_sessions else ft.Text("No current sessions yet.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
+            table if open_sessions else ft.Text("No current sessions yet.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
         ])
         page.update()
 
@@ -423,7 +412,6 @@ def main(page: ft.Page):
             data["mode"] = "open"
             data["start_time"] = time.time()
             data["end_time"] = None
-            data["accumulated_time"] = 0
             
             notified_devices.discard(device_name) 
             save_data()
@@ -515,46 +503,40 @@ def main(page: ft.Page):
     def end_session(device_name):
         data = devices[device_name]
         
-        original_time = data.get("original_fixed_time", 0)
-        if original_time == 0:
-            original_time = data["end_time"] - data["start_time"] if data["mode"] == "fixed" else 0
-            
-        overtime_time = data.get("overtime_time", 0)
-        if data["mode"] == "fixed" and time.time() > data["end_time"]:
-            overtime_time = time.time() - data["end_time"]
-            
-        open_time = 0
-        if data["mode"] == "open":
-            open_time = time.time() - data["start_time"]
+        if data["mode"] == "fixed":
+            actual_seconds = time.time() - data["start_time"]
+            if time.time() > data["end_time"]:
+                actual_seconds = data["end_time"] - data["start_time"]
+                overtime_seconds = time.time() - data["end_time"]
+            else:
+                overtime_seconds = 0
+        elif data["mode"] == "open":
+            actual_seconds = time.time() - data["start_time"]
+            overtime_seconds = 0
+        else:
+            return
 
-        rounded_original = int(round(original_time / 3.0) * 3)
-        if rounded_original == 0 and original_time > 0: rounded_original = 3
+        actual_seconds += data.get("accumulated_time", 0) + data.get("original_fixed_time", 0)
+        overtime_seconds += data.get("overtime_time", 0)
 
-        rounded_overtime = int(round(overtime_time / 3.0) * 3)
-        if rounded_overtime == 0 and overtime_time > 0: rounded_overtime = 3
-
-        rounded_open = int(round(open_time / 3.0) * 3)
-        if rounded_open == 0 and open_time > 0: rounded_open = 3
+        rounded_actual = int(round(actual_seconds / 3.0) * 3)
+        if rounded_actual == 0 and actual_seconds > 0: rounded_actual = 3
+        
+        rounded_overtime = int(round(overtime_seconds / 3.0) * 3)
+        if rounded_overtime == 0 and overtime_seconds > 0: rounded_overtime = 3
 
         rate = data.get("hourly_rate", 1200)
-        price_original = int((rounded_original / 12.0) * rate)
-        price_overtime = int((rounded_overtime / 12.0) * rate)
-        price_open = int((rounded_open / 12.0) * rate)
-        
-        total_price = price_original + price_overtime + price_open
-        total_seconds = rounded_original + rounded_overtime + rounded_open
+        total_price = int((rounded_actual / 12.0) * rate) + int((rounded_overtime / 12.0) * rate)
+        total_seconds = rounded_actual + rounded_overtime
 
         content_list = [
             ft.Text(f"Device: {device_name}", size=18, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
             ft.Divider(height=10, color=ft.Colors.GREY_800),
-            ft.Text(f"Original Time: {rounded_original} secs ({format_price(price_original)} SYP)", size=14, color=ft.Colors.GREY_400),
+            ft.Text(f"Time Played: {rounded_actual} secs ({format_price(int((rounded_actual / 12.0) * rate))} SYP)", size=14, color=ft.Colors.GREY_400),
         ]
         
         if rounded_overtime > 0:
-            content_list.append(ft.Text(f"Lost Time (Overtime): {rounded_overtime} secs ({format_price(price_overtime)} SYP)", size=14, color=ft.Colors.YELLOW_500))
-            
-        if rounded_open > 0:
-            content_list.append(ft.Text(f"Open Time Added: {rounded_open} secs ({format_price(price_open)} SYP)", size=14, color=ft.Colors.BLUE_400))
+            content_list.append(ft.Text(f"Overtime: {rounded_overtime} secs ({format_price(int((rounded_overtime / 12.0) * rate))} SYP)", size=14, color=ft.Colors.YELLOW_500))
             
         content_list.extend([
             ft.Divider(height=10, color=ft.Colors.GREY_800),
@@ -571,9 +553,7 @@ def main(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         
-        page.dialog = receipt
-        receipt.open = True
-        page.update()
+        page.show_dialog(receipt)
 
     def reset_device_and_save(device_name, played_seconds, total_price, mode, players):
         mins, secs = divmod(int(played_seconds), 60)
@@ -778,6 +758,11 @@ def main(page: ft.Page):
         dialog_main.open = True
         page.update()
 
+    def back_to_start_popup(device_name):
+        page.pop_dialog()
+        page.update()
+        open_time_popup_from_card(device_name)
+
     def open_custom_time_popup(device_name):
         time_input = ft.TextField(label="Seconds", keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
         players_dropdown = ft.Dropdown(
@@ -822,7 +807,7 @@ def main(page: ft.Page):
                 players_dropdown,
                 ft.Button("START", on_click=start_custom, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(e), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("BACK", on_click=lambda e: back_to_start_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
@@ -871,7 +856,7 @@ def main(page: ft.Page):
                 players_dropdown,
                 ft.Button("CALCULATE & START", on_click=calculate_and_start, bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(e), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("BACK", on_click=lambda e: back_to_start_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
@@ -906,7 +891,7 @@ def main(page: ft.Page):
                 players_dropdown,
                 ft.Button("START", on_click=start_open, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: open_time_popup(e), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("BACK", on_click=lambda e: back_to_start_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
@@ -920,11 +905,18 @@ def main(page: ft.Page):
         extend_btn = ft.Button("EXTEND TIME", bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, visible=False, on_click=lambda e: open_extend_popup(device_name))
         end_btn = ft.Button("END SESSION", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, visible=False, on_click=lambda e: end_session(device_name))
 
-        card_content = ft.Container(
+        clickable_text = ft.GestureDetector(
             content=ft.Column([
                 ft.Text(device_name, size=26, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                 ft.Text("● AVAILABLE", color=ft.Colors.GREEN_400, size=16, weight=ft.FontWeight.BOLD),
                 timer_text,
+            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+            on_tap=lambda e: open_time_popup_from_card(device_name)
+        )
+
+        card_content = ft.Container(
+            content=ft.Column([
+                clickable_text,
                 extend_btn, 
                 end_btn     
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
@@ -933,8 +925,8 @@ def main(page: ft.Page):
             border_radius=20,
             alignment=ft.Alignment.CENTER,
             padding=20,
-            animate=ft.Animation(300, ft.AnimationCurve.EASE_IN_OUT),
-            on_click=lambda e: open_time_popup_from_card(device_name)
+            on_click=lambda e: open_time_popup_from_card(device_name),
+            animate=ft.Animation(300, ft.AnimationCurve.EASE_IN_OUT)
         )
         
         device_ui[device_name] = card_content
