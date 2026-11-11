@@ -1,0 +1,17 @@
+[project]
+name = "levelup-manager"
+version = "1.0.0"
+requires-python = ">=3.9"
+dependencies = [
+    "flet",
+]
+
+[tool.flet]
+product = "LevelUp Manage"
+org = "com.rashed"
+
+[tool.flet.app]
+path = "."
+
+[tool.flet.icons]
+android = "assets/icon.png"
