@@ -455,10 +455,9 @@ def main(page: ft.Page):
                 ft.Button("END DAY", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=confirm_end_day),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True),
             ft.Divider(height=20, color="transparent"),
-            ft.Container(
-                content=ft.Column([table], scroll=ft.ScrollMode.ADAPTIVE),
-                alignment=ft.Alignment.CENTER
-            ) if open_sessions else ft.Text("No current sessions yet.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
+
+            ft.Column([table], scroll=ft.ScrollMode.ADAPTIVE) if open_sessions else ft.Text("No current sessions yet.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
+
         ])
         page.update()
 
@@ -912,6 +911,7 @@ def main(page: ft.Page):
         extend_btn = ft.Button("EXTEND TIME", bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, visible=False, on_click=lambda e: open_extend_popup(device_name))
         end_btn = ft.Button("END SESSION", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, visible=False, on_click=lambda e: end_session(device_name))
 
+        # هون فصلنا الضغط: الضغط بس على النص بيفتح النافذة، والأزرار شغالة لحالها
         clickable_text = ft.GestureDetector(
             content=ft.Column([
                 ft.Text(device_name, size=26, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
