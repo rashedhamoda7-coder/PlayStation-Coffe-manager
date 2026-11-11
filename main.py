@@ -1,6 +1,7 @@
 import flet as ft
 import time
-import threading 
+import math
+import threading
 import json
 import os
 
@@ -8,16 +9,117 @@ DATA_FILE = "data.json"
 HISTORY_FILE = "history.json"
 SETTINGS_FILE = "settings.json"
 
+APP_VERSION = 2                      # 2 = التسعير بالساعة
+WHATSAPP_NUMBER = "963986687958"
+QUARTER = 900                        # ربع ساعة بالثواني
+
+default_settings = {
+    "version": APP_VERSION,
+    "price_1": 1000,
+    "price_2": 2000,
+    "price_3": 3000,
+    "price_4": 4000,
+}
+
+
+def round_to_quarter(seconds):
+    """تقريب لأقرب ربع ساعة، وأقل شي ربع ساعة."""
+    if seconds <= 0:
+        return 0
+    quarters = int(seconds / QUARTER + 0.5)
+    if quarters == 0:
+        quarters = 1
+    return quarters * QUARTER
+
+
+def price_for(seconds, rate):
+    """السعر لعدد ثواني (من مضاعفات ربع الساعة) وسعر الساعة."""
+    quarters = int(seconds // QUARTER)
+    return int(quarters * rate / 4.0 + 0.5)
+
+
+def format_duration(seconds):
+    """مثال: ساعة و 30 دقيقة"""
+    total_minutes = int(seconds / 60.0 + 0.5)
+    hours, minutes = divmod(total_minutes, 60)
+    parts = []
+    if hours:
+        if hours == 1:
+            parts.append("ساعة")
+        elif hours == 2:
+            parts.append("ساعتين")
+        elif hours <= 10:
+            parts.append(f"{hours} ساعات")
+        else:
+            parts.append(f"{hours} ساعة")
+    if minutes:
+        if minutes == 1:
+            parts.append("دقيقة")
+        elif minutes == 2:
+            parts.append("دقيقتين")
+        elif minutes <= 10:
+            parts.append(f"{minutes} دقائق")
+        else:
+            parts.append(f"{minutes} دقيقة")
+    if not parts:
+        return "0 دقيقة"
+    return " و ".join(parts)
+
+
+def format_clock(seconds, round_up=False):
+    """عداد بالساعات والدقائق: 01:30"""
+    if seconds < 0:
+        seconds = 0
+    if round_up:
+        minutes = int(math.ceil(seconds / 60.0))
+    else:
+        minutes = int(seconds // 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours:02d}:{minutes:02d}"
+
+
+def players_text(n):
+    if n == 1:
+        return "لاعب واحد"
+    if n == 2:
+        return "لاعبين"
+    return f"{n} لاعبين"
+
+
+def fresh_device():
+    return {
+        "status": "Available", "mode": None, "end_time": None, "start_time": None,
+        "players": 1, "hourly_rate": default_settings["price_1"],
+        "accumulated_time": 0, "original_fixed_time": 0, "overtime_time": 0,
+    }
+
+
+def backup_old_files():
+    """أول تشغيل بالنسخة الجديدة: نحفظ ملفات التجريب القديمة باسم .bak ونبدأ من جديد."""
+    for path in (DATA_FILE, HISTORY_FILE, SETTINGS_FILE):
+        if os.path.exists(path):
+            try:
+                os.replace(path, path + ".bak")
+            except Exception:
+                pass
+
+
 def main(page: ft.Page):
-    page.title = "PlayStation Station Management"
+    page.title = "Level Up"
     page.theme_mode = ft.ThemeMode.DARK
-    page.bgcolor = "#121212"  
+    page.bgcolor = "#121212"
     page.padding = 20
-    page.window_width = 450 
+    page.window_width = 450
     page.window_height = 800
 
     def format_price(price):
         return f"{price:,}"
+
+    def show_snack(text, color):
+        snack = ft.SnackBar(ft.Text(text), bgcolor=color)
+        page.overlay.append(snack)
+        snack.open = True
+        page.update()
 
     def build_sessions_table(sessions):
         def cell(text, ratio, color=ft.Colors.WHITE, bold=False):
@@ -36,10 +138,10 @@ def main(page: ft.Page):
 
         controls = [
             ft.Row([
-                cell("Device", 2, ft.Colors.BLUE_300, True),
-                cell("Time", 3, ft.Colors.BLUE_300, True),
-                cell("Players", 2, ft.Colors.BLUE_300, True),
-                cell("Price", 3, ft.Colors.BLUE_300, True),
+                cell("الجهاز", 2, ft.Colors.BLUE_300, True),
+                cell("الوقت", 3, ft.Colors.BLUE_300, True),
+                cell("اللاعبين", 2, ft.Colors.BLUE_300, True),
+                cell("السعر", 3, ft.Colors.BLUE_300, True),
             ], spacing=0),
             ft.Divider(height=1, color=ft.Colors.GREY_800),
         ]
@@ -47,9 +149,9 @@ def main(page: ft.Page):
             controls.append(
                 ft.Row([
                     cell(s.get("device", ""), 2),
-                    cell(s.get("time_played", ""), 3),
+                    cell(format_duration(s.get("played_minutes", 0) * 60), 3),
                     cell(str(s.get("players", 1)), 2),
-                    cell(format_price(s.get("total_price", 0)) + " SYP", 3, ft.Colors.BLUE_300, True),
+                    cell(format_price(s.get("total_price", 0)) + " ل.س", 3, ft.Colors.BLUE_300, True),
                 ], spacing=0)
             )
             controls.append(ft.Divider(height=1, color=ft.Colors.GREY_800))
@@ -60,78 +162,91 @@ def main(page: ft.Page):
             border_radius=10,
         )
 
-    default_settings = {
-        "price_1": 1200,
-        "price_2": 2000,
-        "price_3": 2800,
-        "price_4": 3500
-    }
-
-    def load_settings():
-        if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        return default_settings
-
     def save_settings(new_settings):
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(new_settings, f, ensure_ascii=False, indent=4)
 
+    def load_settings():
+        if os.path.exists(SETTINGS_FILE):
+            try:
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    saved = json.load(f)
+                if saved.get("version") == APP_VERSION:
+                    for key, value in default_settings.items():
+                        saved.setdefault(key, value)
+                    return saved
+            except Exception:
+                pass
+        # ملفات قديمة (محسوبة على 12 ثانية): نحفظها ونبدأ من جديد
+        backup_old_files()
+        fresh = dict(default_settings)
+        save_settings(fresh)
+        return fresh
+
     settings = load_settings()
+
+    def rate_for(players):
+        return settings.get(f"price_{players}", default_settings[f"price_{players}"])
 
     def load_data():
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         return {
-            "PS4 - 1": {"status": "Available", "mode": None, "end_time": None, "start_time": None, "players": 1, "hourly_rate": 1200, "accumulated_time": 0, "original_fixed_time": 0, "overtime_time": 0},
-            "PS4 - 2": {"status": "Available", "mode": None, "end_time": None, "start_time": None, "players": 1, "hourly_rate": 1200, "accumulated_time": 0, "original_fixed_time": 0, "overtime_time": 0},
-            "PS4 - 3": {"status": "Available", "mode": None, "end_time": None, "start_time": None, "players": 1, "hourly_rate": 1200, "accumulated_time": 0, "original_fixed_time": 0, "overtime_time": 0},
+            "PS4 - 1": fresh_device(),
+            "PS4 - 2": fresh_device(),
+            "PS4 - 3": fresh_device(),
         }
 
     def save_data():
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(devices, f, ensure_ascii=False, indent=4)
 
-    def save_history(device_name, time_played, total_price, mode, players, is_closed=False):
+    def save_history(device_name, played_seconds, total_price, mode, players, is_closed=False):
         history = []
         if os.path.exists(HISTORY_FILE):
             with open(HISTORY_FILE, "r", encoding="utf-8") as f:
                 try:
                     history = json.load(f)
-                except:
+                except Exception:
                     history = []
-        
+
         history.append({
             "device": device_name,
             "players": players,
-            "time_played": time_played,
+            "played_minutes": int(played_seconds // 60),
+            "time_played": format_duration(played_seconds),
             "total_price": total_price,
             "mode": mode,
             "date": time.strftime("%Y-%m-%d"),
             "time": time.strftime("%H:%M:%S"),
             "is_closed": is_closed
         })
-        
+
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(history, f, ensure_ascii=False, indent=4)
 
     devices = load_data()
     device_ui = {}
-    device_timer_text = {} 
+    device_timer_text = {}
     notified_devices = set()
 
     current_page = ft.ListView(expand=True, spacing=10, padding=20)
     alerts_container = ft.Column()
 
-    def toggle_drawer(e):
-        page.drawer.open = not page.drawer.open
-        page.update()
+    async def open_drawer(e):
+        # نفس طريقة السحب: بيفتح القائمة الجانبية
+        try:
+            await page.show_drawer()
+        except Exception:
+            page.drawer.open = True
+            page.update()
 
     def show_devices_view(e=None):
         page.drawer.open = False
+        page.drawer.selected_index = 0
         current_page.controls.clear()
-        
+
         current_page.controls.extend([
             ft.Divider(height=20, color="transparent"),
             ft.Container(
@@ -140,15 +255,15 @@ def main(page: ft.Page):
                     create_device_card("PS4 - 2"),
                     create_device_card("PS4 - 3")
                 ], alignment=ft.MainAxisAlignment.CENTER, spacing=20, wrap=True),
-                alignment=ft.Alignment.CENTER, 
-                expand=True 
+                alignment=ft.Alignment.CENTER,
+                expand=True
             ),
             ft.Divider(height=30, color="transparent"),
             alerts_container,
             ft.Divider(height=40, color="transparent"),
             ft.Container(
                 content=ft.Column([
-                    ft.Text("Developed by", size=12, color=ft.Colors.GREY_500),
+                    ft.Text("تطوير", size=12, color=ft.Colors.GREY_500),
                     ft.Text("Rashed Hammoda", size=18, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
                     ft.TextButton(
                         content=ft.Row([
@@ -156,7 +271,15 @@ def main(page: ft.Page):
                             ft.Text("LinkedIn", color=ft.Colors.BLUE_400, size=16, weight=ft.FontWeight.BOLD)
                         ], alignment=ft.MainAxisAlignment.CENTER, spacing=5),
                         url="https://www.linkedin.com/in/rashed-hamoda-01b068436/",
-                        tooltip="My LinkedIn Profile"
+                        tooltip="صفحتي على لينكدإن"
+                    ),
+                    ft.TextButton(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.CHAT, color="#25D366", size=20),
+                            ft.Text("تواصل مباشر عبر واتساب", color="#25D366", size=16, weight=ft.FontWeight.BOLD)
+                        ], alignment=ft.MainAxisAlignment.CENTER, spacing=5),
+                        url=f"https://wa.me/{WHATSAPP_NUMBER}",
+                        tooltip="واتساب"
                     ),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
                 alignment=ft.Alignment.CENTER
@@ -167,49 +290,46 @@ def main(page: ft.Page):
 
     def show_pricing_view(e):
         page.drawer.open = False
-        
-        txt_p1 = ft.TextField(label="Price for 1 Player (12 Secs)", value=str(settings["price_1"]), keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
-        txt_p2 = ft.TextField(label="Price for 2 Players (12 Secs)", value=str(settings["price_2"]), keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
-        txt_p3 = ft.TextField(label="Price for 3 Players (12 Secs)", value=str(settings["price_3"]), keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
-        txt_p4 = ft.TextField(label="Price for 4 Players (12 Secs)", value=str(settings["price_4"]), keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
+        page.drawer.selected_index = 1
+
+        txt_p1 = ft.TextField(label="سعر الساعة للاعب واحد", value=str(settings["price_1"]), keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
+        txt_p2 = ft.TextField(label="سعر الساعة للاعبين", value=str(settings["price_2"]), keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
+        txt_p3 = ft.TextField(label="سعر الساعة لثلاثة لاعبين", value=str(settings["price_3"]), keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
+        txt_p4 = ft.TextField(label="سعر الساعة لأربعة لاعبين", value=str(settings["price_4"]), keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
 
         def save_prices(e):
             try:
-                settings["price_1"] = int(txt_p1.value)
-                settings["price_2"] = int(txt_p2.value)
-                settings["price_3"] = int(txt_p3.value)
-                settings["price_4"] = int(txt_p4.value)
-                save_settings(settings)
-                snack = ft.SnackBar(ft.Text("Prices saved successfully!"), bgcolor=ft.Colors.GREEN_700)
-                page.overlay.append(snack)
-                snack.open = True
-                page.update()
-            except:
-                snack = ft.SnackBar(ft.Text("Please enter valid numbers!"), bgcolor=ft.Colors.RED_700)
-                page.overlay.append(snack)
-                snack.open = True
-                page.update()
+                values = [int(t.value) for t in (txt_p1, txt_p2, txt_p3, txt_p4)]
+                if any(v <= 0 for v in values):
+                    raise ValueError
+            except Exception:
+                show_snack("اكتب أرقام صحيحة", ft.Colors.RED_700)
+                return
+            settings["price_1"], settings["price_2"], settings["price_3"], settings["price_4"] = values
+            save_settings(settings)
+            show_snack("تم حفظ الأسعار", ft.Colors.GREEN_700)
 
         current_page.controls.clear()
         current_page.controls.extend([
-            ft.Text("Set Price per 12 Seconds", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300),
+            ft.Text("سعر الساعة", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300),
             ft.Divider(height=20, color="transparent"),
             txt_p1, txt_p2, txt_p3, txt_p4,
             ft.Divider(height=20, color="transparent"),
-            ft.Button("SAVE PRICES", width=300, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, on_click=save_prices),
-            ft.TextButton("BACK TO DEVICES", on_click=show_devices_view, style=ft.ButtonStyle(color=ft.Colors.GREY_400))
+            ft.Button("حفظ الأسعار", width=300, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, on_click=save_prices),
+            ft.TextButton("رجوع للأجهزة", on_click=show_devices_view, style=ft.ButtonStyle(color=ft.Colors.GREY_400))
         ])
         page.update()
 
     def show_reports_view(e):
         page.drawer.open = False
-        
+        page.drawer.selected_index = 3
+
         history_data = []
         if os.path.exists(HISTORY_FILE):
             with open(HISTORY_FILE, "r", encoding="utf-8") as f:
                 try:
                     history_data = json.load(f)
-                except:
+                except Exception:
                     history_data = []
 
         closed_sessions = [s for s in history_data if s.get("is_closed", False)]
@@ -219,10 +339,10 @@ def main(page: ft.Page):
             current_page.controls.extend([
                 ft.Row([
                     ft.IconButton(icon=ft.Icons.ARROW_BACK, on_click=show_devices_view, icon_color=ft.Colors.WHITE),
-                    ft.Text("REPORTS", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300),
+                    ft.Text("التقارير", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300),
                 ], alignment=ft.MainAxisAlignment.CENTER),
                 ft.Divider(height=20, color="transparent"),
-                ft.Text("No closed reports yet.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
+                ft.Text("ما في تقارير بعد.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
             ])
             page.update()
             return
@@ -231,33 +351,23 @@ def main(page: ft.Page):
         for session in closed_sessions:
             date = session.get("date", "Unknown")
             if date not in daily_data:
-                daily_data[date] = {"sessions": [], "total_revenue": 0, "total_seconds": 0}
-            
+                daily_data[date] = {"sessions": [], "total_revenue": 0, "total_minutes": 0}
+
             daily_data[date]["sessions"].append(session)
             daily_data[date]["total_revenue"] += session.get("total_price", 0)
-            
-            time_str = session.get("time_played", "0 mins 0 secs")
-            try:
-                parts = time_str.split(" ")
-                mins = int(parts[0])
-                secs = int(parts[2])
-                daily_data[date]["total_seconds"] += (mins * 60) + secs
-            except:
-                pass
+            daily_data[date]["total_minutes"] += session.get("played_minutes", 0)
 
         day_cards = []
         for date, info in sorted(daily_data.items(), reverse=True):
-            total_mins, total_secs = divmod(info["total_seconds"], 60)
-            total_hours, total_mins = divmod(total_mins, 60)
-            time_str = f"{total_hours}h {total_mins}m {total_secs}s"
-            
+            time_str = format_duration(info["total_minutes"] * 60)
+
             def show_daily_popup(e, day_date=date, day_sessions=info["sessions"]):
                 table = build_sessions_table(list(reversed(day_sessions)))
                 screen_w = getattr(page, "width", None) or 360
                 dialog_width = min(480, screen_w - 40)
 
                 dialog = ft.AlertDialog(
-                    title=ft.Text(f"Report: {day_date}", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD),
+                    title=ft.Text(f"تقرير يوم {day_date}", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD),
                     bgcolor="#1E1E1E",
                     inset_padding=ft.Padding.all(10),
                     content_padding=ft.Padding.all(10),
@@ -266,7 +376,7 @@ def main(page: ft.Page):
                         width=dialog_width,
                         height=400,
                     ),
-                    actions=[ft.TextButton("CLOSE", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+                    actions=[ft.TextButton("إغلاق", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.RED_400))],
                 )
                 page.show_dialog(dialog)
                 page.update()
@@ -275,8 +385,8 @@ def main(page: ft.Page):
                 content=ft.Column([
                     ft.Text(date, size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                     ft.Divider(height=10, color=ft.Colors.GREY_800),
-                    ft.Text(f"Revenue: {format_price(info['total_revenue'])} SYP", color=ft.Colors.GREEN_400, size=14, weight=ft.FontWeight.BOLD),
-                    ft.Text(f"Time: {time_str}", color=ft.Colors.BLUE_300, size=14, weight=ft.FontWeight.BOLD),
+                    ft.Text(f"الإيرادات: {format_price(info['total_revenue'])} ل.س", color=ft.Colors.GREEN_400, size=14, weight=ft.FontWeight.BOLD),
+                    ft.Text(f"الوقت: {time_str}", color=ft.Colors.BLUE_300, size=14, weight=ft.FontWeight.BOLD),
                 ], horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
                 bgcolor="#1E1E1E",
                 padding=15,
@@ -291,7 +401,7 @@ def main(page: ft.Page):
         current_page.controls.extend([
             ft.Row([
                 ft.IconButton(icon=ft.Icons.ARROW_BACK, on_click=show_devices_view, icon_color=ft.Colors.WHITE),
-                ft.Text("REPORTS", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300),
+                ft.Text("التقارير", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300),
             ], alignment=ft.MainAxisAlignment.CENTER),
             ft.Divider(height=20, color="transparent"),
             ft.Column(day_cards, spacing=10)
@@ -300,13 +410,14 @@ def main(page: ft.Page):
 
     def show_current_history_view(e):
         page.drawer.open = False
-        
+        page.drawer.selected_index = 2
+
         history_data = []
         if os.path.exists(HISTORY_FILE):
             with open(HISTORY_FILE, "r", encoding="utf-8") as f:
                 try:
                     history_data = json.load(f)
-                except:
+                except Exception:
                     history_data = []
 
         open_sessions = [s for s in history_data if not s.get("is_closed", False)]
@@ -318,21 +429,21 @@ def main(page: ft.Page):
                     if not s.get("is_closed", False):
                         s["is_closed"] = True
                     new_history.append(s)
-                
+
                 with open(HISTORY_FILE, "w", encoding="utf-8") as f:
                     json.dump(new_history, f, ensure_ascii=False, indent=4)
-                
+
                 page.pop_dialog()
                 show_current_history_view(None)
 
             dialog_confirm = ft.AlertDialog(
-                title=ft.Text("End Day?", color=ft.Colors.RED_400, weight=ft.FontWeight.BOLD),
-                content=ft.Text("This will move all current sessions to Reports. Are you sure?", color=ft.Colors.WHITE),
+                title=ft.Text("إنهاء اليوم؟", color=ft.Colors.RED_400, weight=ft.FontWeight.BOLD),
+                content=ft.Text("رح تنتقل كل الجلسات الحالية للتقارير. متأكد؟", color=ft.Colors.WHITE),
                 bgcolor="#1E1E1E",
                 inset_padding=ft.Padding.all(50),
                 actions=[
-                    ft.TextButton("CANCEL", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.GREY_400)),
-                    ft.TextButton("YES, END DAY", on_click=do_end_day, style=ft.ButtonStyle(color=ft.Colors.RED_400)),
+                    ft.TextButton("إلغاء", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.GREY_400)),
+                    ft.TextButton("نعم، إنهاء اليوم", on_click=do_end_day, style=ft.ButtonStyle(color=ft.Colors.RED_400)),
                 ],
                 actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             )
@@ -347,17 +458,21 @@ def main(page: ft.Page):
             ft.Row([
                 ft.IconButton(icon=ft.Icons.ARROW_BACK, on_click=show_devices_view, icon_color=ft.Colors.WHITE),
                 ft.Column([
-                    ft.Text("CURRENT HISTORY", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300),
-                    ft.Button("END DAY", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=confirm_end_day),
+                    ft.Text("السجل الحالي", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300),
+                    ft.Button("إنهاء اليوم", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=confirm_end_day),
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
             ], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.START),
             ft.Divider(height=20, color="transparent"),
-            table if open_sessions else ft.Text("No current sessions yet.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
+            table if open_sessions else ft.Text("ما في جلسات حالياً.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
         ])
         page.update()
 
-    def handle_drawer_change(e):
+    async def handle_drawer_change(e):
         selected_index = e.control.selected_index
+        try:
+            await page.close_drawer()
+        except Exception:
+            pass
         page.drawer.open = False
         page.update()
         if selected_index == 0:
@@ -372,20 +487,24 @@ def main(page: ft.Page):
     page.drawer = ft.NavigationDrawer(
         bgcolor="#1E1E1E",
         on_change=handle_drawer_change,
+        selected_index=0,
         controls=[
             ft.Container(height=20),
-            ft.NavigationDrawerDestination(icon=ft.Icons.HOME, label="Devices"),
-            ft.NavigationDrawerDestination(icon=ft.Icons.ATTACH_MONEY, label="Pricing"),
-            ft.NavigationDrawerDestination(icon=ft.Icons.HISTORY, label="Current History"),
-            ft.NavigationDrawerDestination(icon=ft.Icons.BAR_CHART, label="Reports"),
+            ft.NavigationDrawerDestination(icon=ft.Icons.HOME, label="الأجهزة"),
+            ft.NavigationDrawerDestination(icon=ft.Icons.ATTACH_MONEY, label="الأسعار"),
+            ft.NavigationDrawerDestination(icon=ft.Icons.HISTORY, label="السجل الحالي"),
+            ft.NavigationDrawerDestination(icon=ft.Icons.BAR_CHART, label="التقارير"),
         ],
     )
 
     page.appbar = ft.AppBar(
-        title=ft.Text("PLAYSTATION ARENA", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD),
+        title=ft.Row([
+            ft.Icon(ft.Icons.SPORTS_ESPORTS, color=ft.Colors.BLUE_300),
+            ft.Text("LEVEL UP", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD),
+        ], alignment=ft.MainAxisAlignment.CENTER, spacing=8, tight=True),
         bgcolor="#121212",
         center_title=True,
-        leading=ft.IconButton(icon=ft.Icons.MENU, on_click=toggle_drawer, icon_color=ft.Colors.WHITE),
+        leading=ft.IconButton(icon=ft.Icons.MENU, on_click=open_drawer, icon_color=ft.Colors.WHITE),
     )
 
     def close_dialog(e):
@@ -396,10 +515,32 @@ def main(page: ft.Page):
         page.pop_dialog()
         page.update()
 
+    def make_players_dropdown():
+        return ft.Dropdown(
+            options=[
+                ft.dropdown.Option("1", "لاعب واحد"),
+                ft.dropdown.Option("2", "لاعبين"),
+                ft.dropdown.Option("3", "3 لاعبين"),
+                ft.dropdown.Option("4", "4 لاعبين"),
+            ],
+            value="1",
+            width=200,
+            color=ft.Colors.WHITE,
+            border_color=ft.Colors.BLUE_300,
+            label="عدد اللاعبين",
+        )
+
+    def quick_time_buttons(on_pick):
+        return ft.Row([
+            ft.Button("ساعة", on_click=lambda e: on_pick(60)),
+            ft.Button("ساعة ونص", on_click=lambda e: on_pick(90)),
+            ft.Button("ساعتين", on_click=lambda e: on_pick(120)),
+        ], alignment=ft.MainAxisAlignment.CENTER, wrap=True, spacing=8, run_spacing=8)
+
     def confirm_let_play(device_name):
         def do_let_play(e):
             data = devices[device_name]
-            
+
             if data.get("original_fixed_time", 0) == 0:
                 data["original_fixed_time"] = data["end_time"] - data["start_time"]
                 if data["original_fixed_time"] < 0: data["original_fixed_time"] = 0
@@ -408,110 +549,104 @@ def main(page: ft.Page):
                 data["overtime_time"] = time.time() - data["end_time"]
             else:
                 data["overtime_time"] = 0
-            
+
             data["mode"] = "open"
             data["start_time"] = time.time()
             data["end_time"] = None
-            
-            notified_devices.discard(device_name) 
+
+            notified_devices.discard(device_name)
             save_data()
             page.pop_dialog()
             update_ui()
             refresh_alerts_table()
 
         dialog = ft.AlertDialog(
-            title=ft.Text(f"Let Them Play?", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
-            content=ft.Text(f"Switch {device_name} to Open Time?", color=ft.Colors.WHITE),
+            title=ft.Text("خليهم يكملوا؟", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            content=ft.Text(f"حوّل {device_name} لوقت مفتوح؟", color=ft.Colors.WHITE),
             bgcolor="#1E1E1E",
             inset_padding=ft.Padding.all(50),
             actions=[
-                ft.TextButton("CANCEL", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.GREY_400)),
-                ft.TextButton("YES", on_click=do_let_play, style=ft.ButtonStyle(color=ft.Colors.GREEN_400)),
+                ft.TextButton("إلغاء", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.GREY_400)),
+                ft.TextButton("نعم", on_click=do_let_play, style=ft.ButtonStyle(color=ft.Colors.GREEN_400)),
             ],
             actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         )
         page.show_dialog(dialog)
-        
+
         page.update()
 
     def open_extend_popup(device_name):
-        time_input = ft.TextField(label="Add Seconds", keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
-        
-        def set_time(secs):
-            time_input.value = str(secs)
+        time_input = ft.TextField(label="زيادة بالدقائق", keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
+
+        def set_minutes(minutes):
+            time_input.value = str(minutes)
             page.update()
 
         def add_custom_time(e):
             try:
-                secs = int(time_input.value)
-                if secs <= 0: raise ValueError
-                
-                devices[device_name]["accumulated_time"] = devices[device_name].get("accumulated_time", 0) + (time.time() - devices[device_name]["start_time"])
-                
-                devices[device_name]["mode"] = "fixed"
-                devices[device_name]["start_time"] = time.time()
-                devices[device_name]["end_time"] = time.time() + secs
-                
-                notified_devices.discard(device_name) 
-                save_data()
-                page.pop_dialog()
-                update_ui()
-                refresh_alerts_table() 
-                
-            except:
-                snack = ft.SnackBar(ft.Text("Please enter valid seconds!"), bgcolor=ft.Colors.RED_700)
-                page.overlay.append(snack)
-                snack.open = True
-                page.update()
+                minutes = int(time_input.value)
+                if minutes <= 0: raise ValueError
+            except Exception:
+                show_snack("اكتب عدد دقائق صحيح", ft.Colors.RED_700)
+                return
+
+            devices[device_name]["accumulated_time"] = devices[device_name].get("accumulated_time", 0) + (time.time() - devices[device_name]["start_time"])
+
+            devices[device_name]["mode"] = "fixed"
+            devices[device_name]["start_time"] = time.time()
+            devices[device_name]["end_time"] = time.time() + minutes * 60
+
+            notified_devices.discard(device_name)
+            save_data()
+            page.pop_dialog()
+            update_ui()
+            refresh_alerts_table()
 
         def switch_to_open_time(e):
             devices[device_name]["accumulated_time"] = devices[device_name].get("accumulated_time", 0) + (time.time() - devices[device_name]["start_time"])
-            
+
             devices[device_name]["mode"] = "open"
             devices[device_name]["start_time"] = time.time()
             devices[device_name]["end_time"] = None
-            
-            notified_devices.discard(device_name) 
+
+            notified_devices.discard(device_name)
             save_data()
             page.pop_dialog()
             update_ui()
             refresh_alerts_table()
 
         dialog = ft.AlertDialog(
-            title=ft.Text(f"EXTEND TIME - {device_name}", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            title=ft.Text(f"زيادة وقت - {device_name}", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
             bgcolor="#1E1E1E",
             inset_padding=ft.Padding.all(50),
             content=ft.Column([
                 time_input,
-                ft.Text("Quick Select:", size=14, color=ft.Colors.GREY_400),
-                ft.Row([
-                    ft.Button("3s", on_click=lambda _: set_time(3)),
-                    ft.Button("6s", on_click=lambda _: set_time(6)),
-                    ft.Button("12s", on_click=lambda _: set_time(12)),
-                ], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Text("اختيار سريع:", size=14, color=ft.Colors.GREY_400),
+                quick_time_buttons(set_minutes),
                 ft.Divider(height=10, color="transparent"),
-                ft.Button("ADD TIME", on_click=add_custom_time, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
-                ft.Button("SWITCH TO OPEN TIME", on_click=switch_to_open_time, bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE)
+                ft.Button("زيادة الوقت", on_click=add_custom_time, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
+                ft.Button("تحويل لوقت مفتوح", on_click=switch_to_open_time, bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("CANCEL", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("إلغاء", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
-        
+
         page.update()
 
     def end_session(device_name):
         data = devices[device_name]
-        
+        now = time.time()
+
         if data["mode"] == "fixed":
-            actual_seconds = time.time() - data["start_time"]
-            if time.time() > data["end_time"]:
+            actual_seconds = now - data["start_time"]
+            if now > data["end_time"]:
                 actual_seconds = data["end_time"] - data["start_time"]
-                overtime_seconds = time.time() - data["end_time"]
+                overtime_seconds = now - data["end_time"]
             else:
                 overtime_seconds = 0
         elif data["mode"] == "open":
-            actual_seconds = time.time() - data["start_time"]
+            actual_seconds = now - data["start_time"]
             overtime_seconds = 0
         else:
             return
@@ -519,58 +654,52 @@ def main(page: ft.Page):
         actual_seconds += data.get("accumulated_time", 0) + data.get("original_fixed_time", 0)
         overtime_seconds += data.get("overtime_time", 0)
 
-        rounded_actual = int(round(actual_seconds / 3.0) * 3)
-        if rounded_actual == 0 and actual_seconds > 0: rounded_actual = 3
-        
-        rounded_overtime = int(round(overtime_seconds / 3.0) * 3)
-        if rounded_overtime == 0 and overtime_seconds > 0: rounded_overtime = 3
-
-        rate = data.get("hourly_rate", 1200)
-        total_price = int((rounded_actual / 12.0) * rate) + int((rounded_overtime / 12.0) * rate)
-        total_seconds = rounded_actual + rounded_overtime
+        # التقريب مرة وحدة على مجموع الوقت، والسعر بيطلع من الوقت بعد التقريب
+        rate = data.get("hourly_rate", default_settings["price_1"])
+        total_seconds = round_to_quarter(actual_seconds + overtime_seconds)
+        total_price = price_for(total_seconds, rate)
 
         content_list = [
-            ft.Text(f"Device: {device_name}", size=18, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
+            ft.Text(f"الجهاز: {device_name}", size=18, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
             ft.Divider(height=10, color=ft.Colors.GREY_800),
-            ft.Text(f"Time Played: {rounded_actual} secs ({format_price(int((rounded_actual / 12.0) * rate))} SYP)", size=14, color=ft.Colors.GREY_400),
+            ft.Text(f"وقت اللعب: {format_duration(actual_seconds)}", size=14, color=ft.Colors.GREY_400),
         ]
-        
-        if rounded_overtime > 0:
-            content_list.append(ft.Text(f"Overtime: {rounded_overtime} secs ({format_price(int((rounded_overtime / 12.0) * rate))} SYP)", size=14, color=ft.Colors.YELLOW_500))
-            
+
+        if overtime_seconds > 0:
+            content_list.append(ft.Text(f"وقت زيادة: {format_duration(overtime_seconds)}", size=14, color=ft.Colors.YELLOW_500))
+
         content_list.extend([
             ft.Divider(height=10, color=ft.Colors.GREY_800),
-            ft.Text(f"Total Time: {total_seconds} secs", size=16, color=ft.Colors.WHITE),
-            ft.Text(f"Final Price: {format_price(total_price)} SYP", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300)
+            ft.Text(f"الوقت المحسوب: {format_duration(total_seconds)}", size=16, color=ft.Colors.WHITE),
+            ft.Text("(التقريب لأقرب ربع ساعة)", size=12, color=ft.Colors.GREY_500),
+            ft.Text(f"السعر النهائي: {format_price(total_price)} ل.س", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300)
         ])
 
         receipt = ft.AlertDialog(
-            title=ft.Text(f"RECEIPT - {device_name}", color=ft.Colors.GREEN_400, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            title=ft.Text(f"الإيصال - {device_name}", color=ft.Colors.GREEN_400, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
             bgcolor="#1E1E1E",
             inset_padding=ft.Padding.all(50),
             content=ft.Column(content_list, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
-            actions=[ft.TextButton("Close & Free Device", on_click=lambda e: reset_device_and_save(device_name, total_seconds, total_price, data["mode"], data.get("players", 1)), style=ft.ButtonStyle(color=ft.Colors.GREEN_400))],
+            actions=[ft.TextButton("إغلاق وتحرير الجهاز", on_click=lambda e: reset_device_and_save(device_name, total_seconds, total_price, data["mode"], data.get("players", 1)), style=ft.ButtonStyle(color=ft.Colors.GREEN_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
-        
+
         page.show_dialog(receipt)
 
-    def reset_device_and_save(device_name, played_seconds, total_price, mode, players):
-        mins, secs = divmod(int(played_seconds), 60)
-        actual_time_played = f"{mins} mins {secs} secs"
-        save_history(device_name, actual_time_played, total_price, mode, players, is_closed=False)
-        
-        devices[device_name] = {"status": "Available", "mode": None, "end_time": None, "start_time": None, "players": 1, "hourly_rate": 1200, "accumulated_time": 0, "original_fixed_time": 0, "overtime_time": 0}
+    def reset_device_and_save(device_name, total_seconds, total_price, mode, players):
+        save_history(device_name, total_seconds, total_price, mode, players, is_closed=False)
+
+        devices[device_name] = fresh_device()
         notified_devices.discard(device_name)
-        save_data() 
-        
+        save_data()
+
         page.pop_dialog()
         update_ui()
         refresh_alerts_table()
 
     def refresh_alerts_table():
         alerts_container.controls.clear()
-        
+
         for dev_name, data in devices.items():
             if data["status"] == "Busy":
                 if data["mode"] == "fixed" and data["end_time"] <= time.time():
@@ -578,10 +707,10 @@ def main(page: ft.Page):
                         ft.Container(
                             content=ft.Column([
                                 ft.Text(f"{dev_name}", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_400, text_align=ft.TextAlign.CENTER),
-                                ft.Text("Time Ended!", size=14, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
+                                ft.Text("خلص الوقت!", size=14, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
                                 ft.Row([
-                                    ft.Button("LET THEM PLAY", bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, on_click=lambda e, d=dev_name: confirm_let_play(d)),
-                                    ft.Button("END", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=lambda e, d=dev_name: end_session(d))
+                                    ft.Button("خليهم يكملوا", bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, on_click=lambda e, d=dev_name: confirm_let_play(d)),
+                                    ft.Button("إنهاء", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=lambda e, d=dev_name: end_session(d))
                                 ], alignment=ft.MainAxisAlignment.CENTER, spacing=10)
                             ], alignment=ft.MainAxisAlignment.CENTER, spacing=5),
                             bgcolor="#2A0000",
@@ -592,38 +721,37 @@ def main(page: ft.Page):
                         )
                     )
         if len(alerts_container.controls) == 0:
-            alerts_container.controls.append(ft.Text("No active alerts", color=ft.Colors.GREY_500, text_align=ft.TextAlign.CENTER))
+            alerts_container.controls.append(ft.Text("ما في تنبيهات", color=ft.Colors.GREY_500, text_align=ft.TextAlign.CENTER))
         page.update()
+
+    def timer_info(data):
+        """نص العداد ولونه للجهاز المشغول (ساعات ودقائق)."""
+        now = time.time()
+        if data["mode"] == "fixed":
+            remaining = data["end_time"] - now
+            if remaining <= 0:
+                return "+" + format_clock(now - data["end_time"]), ft.Colors.YELLOW_500
+            return format_clock(remaining, round_up=True), ft.Colors.WHITE
+        if data["mode"] == "open":
+            return format_clock(now - data["start_time"]), ft.Colors.WHITE
+        return "", ft.Colors.WHITE
 
     def update_timers():
         while True:
             needs_update = False
             for dev_name, data in devices.items():
-                if data["status"] == "Busy":
-                    if data["mode"] == "fixed":
-                        remaining = int(data["end_time"] - time.time())
-                        if remaining <= 0:
-                            overtime_seconds = int(time.time() - data["end_time"])
-                            mins, secs = divmod(overtime_seconds, 60)
-                            device_timer_text[dev_name].value = f"+{mins:02d}:{secs:02d}"
-                            device_timer_text[dev_name].color = ft.Colors.YELLOW_500
-                        else:
-                            mins, secs = divmod(remaining, 60)
-                            device_timer_text[dev_name].value = f"{mins:02d}:{secs:02d}"
-                            device_timer_text[dev_name].color = ft.Colors.WHITE
-                        needs_update = True
-                    elif data["mode"] == "open":
-                        elapsed = int(time.time() - data["start_time"])
-                        mins, secs = divmod(elapsed, 60)
-                        device_timer_text[dev_name].value = f"{mins:02d}:{secs:02d}"
-                        needs_update = True
+                if data["status"] == "Busy" and data["mode"] in ("fixed", "open"):
+                    text, color = timer_info(data)
+                    device_timer_text[dev_name].value = text
+                    device_timer_text[dev_name].color = color
+                    needs_update = True
             if needs_update:
                 try:
                     page.update()
-                    refresh_alerts_table() 
-                except:
-                    pass 
-            time.sleep(1) 
+                    refresh_alerts_table()
+                except Exception:
+                    pass
+            time.sleep(1)
 
     def blink_alerts():
         while True:
@@ -638,15 +766,18 @@ def main(page: ft.Page):
                         device_ui[dev_name].border = ft.Border.all(2, ft.Colors.RED_500)
                         device_ui[dev_name].shadow = ft.BoxShadow(blur_radius=20, color=ft.Colors.RED_500, offset=ft.Offset(0, 0))
                     needs_update = True
-            
+
             if needs_update:
                 try:
                     page.update()
-                except:
+                except Exception:
                     pass
-            time.sleep(0.5) 
+            time.sleep(0.5)
 
-    def start_session(device_name, seconds=None, is_open=False, players=1, rate=1200):
+    def start_session(device_name, seconds=None, is_open=False, players=1, rate=None):
+        if rate is None:
+            rate = rate_for(players)
+
         if is_open:
             devices[device_name]["mode"] = "open"
             devices[device_name]["start_time"] = time.time()
@@ -654,14 +785,14 @@ def main(page: ft.Page):
             devices[device_name]["mode"] = "fixed"
             devices[device_name]["start_time"] = time.time()
             devices[device_name]["end_time"] = time.time() + seconds
-        
+
         devices[device_name]["status"] = "Busy"
         devices[device_name]["players"] = players
-        devices[device_name]["hourly_rate"] = rate 
-        devices[device_name]["accumulated_time"] = 0 
+        devices[device_name]["hourly_rate"] = rate
+        devices[device_name]["accumulated_time"] = 0
         devices[device_name]["original_fixed_time"] = 0
         devices[device_name]["overtime_time"] = 0
-        save_data() 
+        save_data()
         update_ui()
         page.pop_dialog()
         page.update()
@@ -676,44 +807,33 @@ def main(page: ft.Page):
                     remaining = int(devices[dev_name]["end_time"] - time.time())
                     if remaining <= 0:
                         is_time_up = True
-                
+
+                players_label = players_text(devices[dev_name].get('players', 1))
                 if is_time_up:
-                    card.bgcolor = "#3E2700" 
-                    card.content.controls[0].content.controls[1].value = f"● OVERTIME! ({devices[dev_name].get('players', 1)} Players)"
+                    card.bgcolor = "#3E2700"
+                    card.content.controls[0].content.controls[1].value = f"● وقت زيادة! ({players_label})"
                     card.content.controls[0].content.controls[1].color = ft.Colors.YELLOW_500
                 else:
-                    card.bgcolor = "#2A0000" 
-                    card.border = ft.Border.all(2, ft.Colors.RED_500) 
-                    card.shadow = ft.BoxShadow(blur_radius=15, color=ft.Colors.RED_500, offset=ft.Offset(0, 0)) 
-                    card.content.controls[0].content.controls[1].value = f"● IN USE ({devices[dev_name].get('players', 1)} Players)"
+                    card.bgcolor = "#2A0000"
+                    card.border = ft.Border.all(2, ft.Colors.RED_500)
+                    card.shadow = ft.BoxShadow(blur_radius=15, color=ft.Colors.RED_500, offset=ft.Offset(0, 0))
+                    card.content.controls[0].content.controls[1].value = f"● مشغول ({players_label})"
                     card.content.controls[0].content.controls[1].color = ft.Colors.RED_400
-                
+
                 device_timer_text[dev_name].visible = True
-                
+
                 if devices[dev_name]["mode"] == "fixed" or devices[dev_name]["mode"] == "open":
                     card.content.controls[1].visible = False # extend_btn
                     card.content.controls[2].visible = True  # end_btn
-                
-                if devices[dev_name]["mode"] == "open":
-                    elapsed = int(time.time() - devices[dev_name]["start_time"])
-                    mins, secs = divmod(elapsed, 60)
-                    device_timer_text[dev_name].value = f"{mins:02d}:{secs:02d}"
-                    device_timer_text[dev_name].color = ft.Colors.WHITE
-                elif devices[dev_name]["mode"] == "fixed":
-                    remaining = int(devices[dev_name]["end_time"] - time.time())
-                    if remaining > 0:
-                        mins, secs = divmod(remaining, 60)
-                        device_timer_text[dev_name].value = f"{mins:02d}:{secs:02d}"
-                    else:
-                        overtime_seconds = int(time.time() - devices[dev_name]["end_time"])
-                        mins, secs = divmod(overtime_seconds, 60)
-                        device_timer_text[dev_name].value = f"+{mins:02d}:{secs:02d}"
-                        device_timer_text[dev_name].color = ft.Colors.YELLOW_500
+
+                text, color = timer_info(devices[dev_name])
+                device_timer_text[dev_name].value = text
+                device_timer_text[dev_name].color = color
             else:
-                card.bgcolor = "#1E1E1E" 
-                card.border = ft.Border.all(1, ft.Colors.GREY_700) 
-                card.shadow = ft.BoxShadow(blur_radius=10, color=ft.Colors.BLACK_54, offset=ft.Offset(0, 4)) 
-                card.content.controls[0].content.controls[1].value = "● AVAILABLE"
+                card.bgcolor = "#1E1E1E"
+                card.border = ft.Border.all(1, ft.Colors.GREY_700)
+                card.shadow = ft.BoxShadow(blur_radius=10, color=ft.Colors.BLACK_54, offset=ft.Offset(0, 4))
+                card.content.controls[0].content.controls[1].value = "● متاح"
                 card.content.controls[0].content.controls[1].color = ft.Colors.GREEN_400
                 device_timer_text[dev_name].value = ""
                 device_timer_text[dev_name].visible = False
@@ -742,16 +862,16 @@ def main(page: ft.Page):
             open_open_time_popup(device_name)
 
         dialog_main = ft.AlertDialog(
-            title=ft.Text(f"START SESSION - {device_name}", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            title=ft.Text(f"بدء جلسة - {device_name}", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
             bgcolor="#1E1E1E",
             inset_padding=ft.Padding.all(50),
             content=ft.Column([
-                ft.Text("Select Start Method:", size=18, color=ft.Colors.WHITE),
-                ft.Button("START BY TIME", width=200, bgcolor="#333333", color=ft.Colors.WHITE, on_click=go_to_time_selection),
-                ft.Button("START BY CASH", width=200, bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE, on_click=go_to_cash_selection),
-                ft.Button("OPEN TIME", width=200, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, on_click=go_to_open_time)
+                ft.Text("اختار طريقة البدء:", size=18, color=ft.Colors.WHITE),
+                ft.Button("بالوقت", width=200, bgcolor="#333333", color=ft.Colors.WHITE, on_click=go_to_time_selection),
+                ft.Button("بالمبلغ", width=200, bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE, on_click=go_to_cash_selection),
+                ft.Button("وقت مفتوح", width=200, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, on_click=go_to_open_time)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("CANCEL", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("إلغاء", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog_main)
@@ -764,151 +884,108 @@ def main(page: ft.Page):
         open_time_popup_from_card(device_name)
 
     def open_custom_time_popup(device_name):
-        time_input = ft.TextField(label="Seconds", keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
-        players_dropdown = ft.Dropdown(
-            options=[
-                ft.dropdown.Option("1", "1 Player"),
-                ft.dropdown.Option("2", "2 Players"),
-                ft.dropdown.Option("3", "3 Players"),
-                ft.dropdown.Option("4", "4 Players"),
-            ],
-            value="1",
-            width=200,
-            color=ft.Colors.WHITE,
-            border_color=ft.Colors.BLUE_300,
-            label="Select Players",
-        )
+        time_input = ft.TextField(label="المدة بالدقائق", keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
+        players_dropdown = make_players_dropdown()
+
+        def set_minutes(minutes):
+            time_input.value = str(minutes)
+            page.update()
 
         def start_custom(e):
             try:
-                secs = int(time_input.value)
+                minutes = int(time_input.value)
                 p = int(players_dropdown.value)
-                rate = settings.get(f"price_{p}", 1200)
-                if secs <= 0: raise ValueError
-                start_session(device_name, seconds=secs, players=p, rate=rate)
-            except:
-                snack = ft.SnackBar(ft.Text("Please enter valid seconds!"), bgcolor=ft.Colors.RED_700)
-                page.overlay.append(snack)
-                snack.open = True
-                page.update()
+                if minutes <= 0: raise ValueError
+            except Exception:
+                show_snack("اكتب عدد دقائق صحيح", ft.Colors.RED_700)
+                return
+            start_session(device_name, seconds=minutes * 60, players=p, rate=rate_for(p))
 
         dialog = ft.AlertDialog(
-            title=ft.Text(f"CUSTOM TIME - {device_name}", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            title=ft.Text(f"بالوقت - {device_name}", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
             bgcolor="#1E1E1E",
             inset_padding=ft.Padding.all(50),
             content=ft.Column([
                 time_input,
-                ft.Text("Quick Select:", size=14, color=ft.Colors.GREY_400),
-                ft.Row([
-                    ft.Button("3s", on_click=lambda e: setattr(time_input, 'value', "3")),
-                    ft.Button("6s", on_click=lambda e: setattr(time_input, 'value', "6")),
-                    ft.Button("12s", on_click=lambda e: setattr(time_input, 'value', "12")),
-                ], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Text("اختيار سريع:", size=14, color=ft.Colors.GREY_400),
+                quick_time_buttons(set_minutes),
                 players_dropdown,
-                ft.Button("START", on_click=start_custom, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE)
+                ft.Button("ابدأ", on_click=start_custom, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: back_to_start_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("رجوع", on_click=lambda e: back_to_start_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
-        
+
         page.update()
 
     def open_cash_popup(device_name):
-        amount_input = ft.TextField(label="Amount (SYP)", keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
-        players_dropdown = ft.Dropdown(
-            options=[
-                ft.dropdown.Option("1", "1 Player"),
-                ft.dropdown.Option("2", "2 Players"),
-                ft.dropdown.Option("3", "3 Players"),
-                ft.dropdown.Option("4", "4 Players"),
-            ],
-            value="1",
-            width=200,
-            color=ft.Colors.WHITE,
-            border_color=ft.Colors.BLUE_300,
-            label="Select Players",
-        )
+        amount_input = ft.TextField(label="المبلغ (ل.س)", keyboard_type=ft.KeyboardType.NUMBER, color=ft.Colors.WHITE)
+        players_dropdown = make_players_dropdown()
 
         def calculate_and_start(e):
             try:
                 amount = int(amount_input.value)
                 p = int(players_dropdown.value)
-                rate = settings.get(f"price_{p}", 1200)
-                
-                calculated_seconds = (amount / rate) * 12
-                rounded_seconds = int(round(calculated_seconds / 3.0) * 3)
-                
-                if rounded_seconds <= 0: raise ValueError
-                start_session(device_name, seconds=rounded_seconds, players=p, rate=rate)
-            except:
-                snack = ft.SnackBar(ft.Text("Please enter a valid amount!"), bgcolor=ft.Colors.RED_700)
-                page.overlay.append(snack)
-                snack.open = True
-                page.update()
+                rate = rate_for(p)
+                if amount <= 0 or rate <= 0: raise ValueError
+            except Exception:
+                show_snack("اكتب مبلغ صحيح", ft.Colors.RED_700)
+                return
+
+            # الوقت من المبلغ، بعد التقريب لأقرب ربع ساعة (والسعر بيتحسب من الوقت المقرّب)
+            seconds = round_to_quarter(amount / rate * 3600.0)
+            start_session(device_name, seconds=seconds, players=p, rate=rate)
 
         dialog = ft.AlertDialog(
-            title=ft.Text(f"START BY CASH - {device_name}", color=ft.Colors.GREEN_400, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            title=ft.Text(f"بالمبلغ - {device_name}", color=ft.Colors.GREEN_400, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
             bgcolor="#1E1E1E",
             inset_padding=ft.Padding.all(50),
             content=ft.Column([
                 amount_input,
                 players_dropdown,
-                ft.Button("CALCULATE & START", on_click=calculate_and_start, bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE)
+                ft.Button("احسب وابدأ", on_click=calculate_and_start, bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: back_to_start_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("رجوع", on_click=lambda e: back_to_start_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
-        
+
         page.update()
 
     def open_open_time_popup(device_name):
-        players_dropdown = ft.Dropdown(
-            options=[
-                ft.dropdown.Option("1", "1 Player"),
-                ft.dropdown.Option("2", "2 Players"),
-                ft.dropdown.Option("3", "3 Players"),
-                ft.dropdown.Option("4", "4 Players"),
-            ],
-            value="1",
-            width=200,
-            color=ft.Colors.WHITE,
-            border_color=ft.Colors.BLUE_300,
-            label="Select Players",
-        )
+        players_dropdown = make_players_dropdown()
 
         def start_open(e):
             p = int(players_dropdown.value)
-            rate = settings.get(f"price_{p}", 1200)
-            start_session(device_name, is_open=True, players=p, rate=rate)
+            start_session(device_name, is_open=True, players=p, rate=rate_for(p))
 
         dialog = ft.AlertDialog(
-            title=ft.Text(f"OPEN TIME - {device_name}", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+            title=ft.Text(f"وقت مفتوح - {device_name}", color=ft.Colors.BLUE_300, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
             bgcolor="#1E1E1E",
             inset_padding=ft.Padding.all(50),
             content=ft.Column([
                 players_dropdown,
-                ft.Button("START", on_click=start_open, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE)
+                ft.Button("ابدأ", on_click=start_open, bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15, tight=True),
-            actions=[ft.TextButton("BACK", on_click=lambda e: back_to_start_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
+            actions=[ft.TextButton("رجوع", on_click=lambda e: back_to_start_popup(device_name), style=ft.ButtonStyle(color=ft.Colors.RED_400))],
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         page.show_dialog(dialog)
-        
+
         page.update()
 
     def create_device_card(device_name):
         timer_text = ft.Text("", size=22, weight=ft.FontWeight.BOLD, visible=False, font_family="monospace")
         device_timer_text[device_name] = timer_text
 
-        extend_btn = ft.Button("EXTEND TIME", bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, visible=False, on_click=lambda e: open_extend_popup(device_name))
-        end_btn = ft.Button("END SESSION", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, visible=False, on_click=lambda e: end_session(device_name))
+        extend_btn = ft.Button("زيادة الوقت", bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE, visible=False, on_click=lambda e: open_extend_popup(device_name))
+        end_btn = ft.Button("إنهاء الجلسة", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, visible=False, on_click=lambda e: end_session(device_name))
 
         clickable_text = ft.GestureDetector(
             content=ft.Column([
                 ft.Text(device_name, size=26, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                ft.Text("● AVAILABLE", color=ft.Colors.GREEN_400, size=16, weight=ft.FontWeight.BOLD),
+                ft.Text("● متاح", color=ft.Colors.GREEN_400, size=16, weight=ft.FontWeight.BOLD),
                 timer_text,
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
             on_tap=lambda e: open_time_popup_from_card(device_name)
@@ -917,10 +994,10 @@ def main(page: ft.Page):
         card_content = ft.Container(
             content=ft.Column([
                 clickable_text,
-                extend_btn, 
-                end_btn     
+                extend_btn,
+                end_btn
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
-            width=320, height=280, 
+            width=320, height=280,
             bgcolor="#1E1E1E",
             border_radius=20,
             alignment=ft.Alignment.CENTER,
@@ -928,12 +1005,12 @@ def main(page: ft.Page):
             on_click=lambda e: open_time_popup_from_card(device_name),
             animate=ft.Animation(300, ft.AnimationCurve.EASE_IN_OUT)
         )
-        
+
         device_ui[device_name] = card_content
         return card_content
 
     page.add(current_page)
-    
+
     show_devices_view()
     threading.Thread(target=update_timers, daemon=True).start()
     threading.Thread(target=blink_alerts, daemon=True).start()
