@@ -234,8 +234,8 @@ def main(page: ft.Page):
                     rows=rows,
                     border=ft.Border.all(1, ft.Colors.GREY_800),
                     border_radius=10,
-                    vertical_lines=ft.border.BorderSide(1, ft.Colors.GREY_800),
-                    horizontal_lines=ft.border.BorderSide(1, ft.Colors.GREY_800),
+                    vertical_lines=ft.BorderSide(1, ft.Colors.GREY_800),
+                    horizontal_lines=ft.BorderSide(1, ft.Colors.GREY_800),
                 )
                 
                 dialog = ft.AlertDialog(
@@ -347,8 +347,8 @@ def main(page: ft.Page):
             rows=rows,
             border=ft.Border.all(1, ft.Colors.GREY_800),
             border_radius=10,
-            vertical_lines=ft.border.BorderSide(1, ft.Colors.GREY_800),
-            horizontal_lines=ft.border.BorderSide(1, ft.Colors.GREY_800),
+            vertical_lines=ft.BorderSide(1, ft.Colors.GREY_800),
+            horizontal_lines=ft.BorderSide(1, ft.Colors.GREY_800),
         )
 
         current_page.controls.clear()
@@ -356,11 +356,10 @@ def main(page: ft.Page):
             ft.Row([
                 ft.IconButton(icon=ft.Icons.ARROW_BACK, on_click=show_devices_view, icon_color=ft.Colors.WHITE),
                 ft.Text("CURRENT HISTORY", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300),
-                ft.Container(expand=True),
                 ft.Button("END DAY", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=confirm_end_day),
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Divider(height=20, color="transparent"),
-            ft.Column([table], scroll=ft.ScrollMode.ADAPTIVE) if open_sessions else ft.Text("No current sessions yet.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
+            ft.Column([ft.Row([table], scroll=ft.ScrollMode.AUTO)], scroll=ft.ScrollMode.ADAPTIVE) if open_sessions else ft.Text("No current sessions yet.", size=24, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
         ])
         page.update()
 
@@ -559,9 +558,7 @@ def main(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
         
-        page.dialog = receipt
-        receipt.open = True
-        page.update()
+        page.show_dialog(receipt)
 
     def reset_device_and_save(device_name, played_seconds, total_price, mode, players):
         mins, secs = divmod(int(played_seconds), 60)
