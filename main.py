@@ -11,7 +11,7 @@ SETTINGS_FILE = "settings.json"
 
 APP_VERSION = 2                      # 2 = التسعير بالساعة
 WHATSAPP_NUMBER = "963986687958"
-QUARTER = 900                        # ربع ساعة بالثواني
+ROUND_STEP = 300                     # التقريب لأقرب 5 دقائق (بالثواني)
 
 default_settings = {
     "version": APP_VERSION,
@@ -22,20 +22,19 @@ default_settings = {
 }
 
 
-def round_to_quarter(seconds):
-    """تقريب لأقرب ربع ساعة، وأقل شي ربع ساعة."""
+def round_to_five_minutes(seconds):
+    """تقريب لأقرب 5 دقائق (300 ثانية)، وأقل شي 5 دقائق."""
     if seconds <= 0:
         return 0
-    quarters = int(seconds / QUARTER + 0.5)
-    if quarters == 0:
-        quarters = 1
-    return quarters * QUARTER
+    steps = int(seconds / ROUND_STEP + 0.5)
+    if steps == 0:
+        steps = 1
+    return steps * ROUND_STEP
 
 
 def price_for(seconds, rate):
-    """السعر لعدد ثواني (من مضاعفات ربع الساعة) وسعر الساعة."""
-    quarters = int(seconds // QUARTER)
-    return int(quarters * rate / 4.0 + 0.5)
+    """السعر = (الوقت المقرّب بالثواني / 3600) * سعر الساعة"""
+    return int(seconds / 3600.0 * rate + 0.5)
 
 
 def format_duration(seconds):
@@ -67,15 +66,13 @@ def format_duration(seconds):
 
 
 def format_clock(seconds, round_up=False):
-    """عداد بالساعات والدقائق: 01:30"""
+    """عداد بالساعات والدقائق والثواني: 01:30:05"""
     if seconds < 0:
         seconds = 0
-    if round_up:
-        minutes = int(math.ceil(seconds / 60.0))
-    else:
-        minutes = int(seconds // 60)
-    hours, minutes = divmod(minutes, 60)
-    return f"{hours:02d}:{minutes:02d}"
+    total = int(math.ceil(seconds)) if round_up else int(seconds)
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
 def players_text(n):
@@ -233,14 +230,6 @@ def main(page: ft.Page):
 
     current_page = ft.ListView(expand=True, spacing=10, padding=20)
     alerts_container = ft.Column()
-
-    async def open_drawer(e):
-        # نفس طريقة السحب: بيفتح القائمة الجانبية
-        try:
-            await page.show_drawer()
-        except Exception:
-            page.drawer.open = True
-            page.update()
 
     def show_devices_view(e=None):
         page.drawer.open = False
@@ -504,7 +493,6 @@ def main(page: ft.Page):
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=8, tight=True),
         bgcolor="#121212",
         center_title=True,
-        leading=ft.IconButton(icon=ft.Icons.MENU, on_click=open_drawer, icon_color=ft.Colors.WHITE),
     )
 
     def close_dialog(e):
@@ -638,42 +626,43 @@ def main(page: ft.Page):
         data = devices[device_name]
         now = time.time()
 
+        fixed_seconds = 0      # الوقت الأصلي
+        overtime_seconds = 0   # الوقت الإضافي (النسيان)
+        open_seconds = 0       # الوقت المفتوح
+
         if data["mode"] == "fixed":
-            actual_seconds = now - data["start_time"]
-            if now > data["end_time"]:
-                actual_seconds = data["end_time"] - data["start_time"]
-                overtime_seconds = now - data["end_time"]
-            else:
-                overtime_seconds = 0
+            fixed_seconds = min(now, data["end_time"]) - data["start_time"]
+            overtime_seconds = max(0, now - data["end_time"])
         elif data["mode"] == "open":
-            actual_seconds = now - data["start_time"]
-            overtime_seconds = 0
+            open_seconds = now - data["start_time"]
         else:
             return
 
-        actual_seconds += data.get("accumulated_time", 0) + data.get("original_fixed_time", 0)
+        fixed_seconds += data.get("accumulated_time", 0) + data.get("original_fixed_time", 0)
         overtime_seconds += data.get("overtime_time", 0)
 
-        # التقريب مرة وحدة على مجموع الوقت، والسعر بيطلع من الوقت بعد التقريب
+        # ثواني صحيحة حتى تتطابق الأسطر مع المجموع
+        fixed_seconds = int(fixed_seconds + 0.5)
+        overtime_seconds = int(overtime_seconds + 0.5)
+        open_seconds = int(open_seconds + 0.5)
+        raw_total = fixed_seconds + overtime_seconds + open_seconds
+
+        # التقريب مرة وحدة على مجموع الوقت الكلي، والسعر بيطلع من الوقت بعد التقريب
         rate = data.get("hourly_rate", default_settings["price_1"])
-        total_seconds = round_to_quarter(actual_seconds + overtime_seconds)
+        total_seconds = round_to_five_minutes(raw_total)
         total_price = price_for(total_seconds, rate)
 
         content_list = [
             ft.Text(f"الجهاز: {device_name}", size=18, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
             ft.Divider(height=10, color=ft.Colors.GREY_800),
-            ft.Text(f"وقت اللعب: {format_duration(actual_seconds)}", size=14, color=ft.Colors.GREY_400),
-        ]
-
-        if overtime_seconds > 0:
-            content_list.append(ft.Text(f"وقت زيادة: {format_duration(overtime_seconds)}", size=14, color=ft.Colors.YELLOW_500))
-
-        content_list.extend([
+            ft.Text(f"الوقت الأصلي: {format_clock(fixed_seconds)}", size=14, color=ft.Colors.GREY_400),
+            ft.Text(f"الوقت الإضافي (النسيان): {format_clock(overtime_seconds)}", size=14, color=ft.Colors.YELLOW_500),
+            ft.Text(f"الوقت المفتوح: {format_clock(open_seconds)}", size=14, color=ft.Colors.BLUE_300),
             ft.Divider(height=10, color=ft.Colors.GREY_800),
-            ft.Text(f"الوقت المحسوب: {format_duration(total_seconds)}", size=16, color=ft.Colors.WHITE),
-            ft.Text("(التقريب لأقرب ربع ساعة)", size=12, color=ft.Colors.GREY_500),
+            ft.Text(f"الوقت الكلي: {format_clock(raw_total)}", size=16, color=ft.Colors.WHITE),
+            ft.Text(f"الوقت المحسوب (لأقرب 5 دقائق): {format_clock(total_seconds)}", size=13, color=ft.Colors.GREY_500),
             ft.Text(f"السعر النهائي: {format_price(total_price)} ل.س", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300)
-        ])
+        ]
 
         receipt = ft.AlertDialog(
             title=ft.Text(f"الإيصال - {device_name}", color=ft.Colors.GREEN_400, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
@@ -725,7 +714,7 @@ def main(page: ft.Page):
         page.update()
 
     def timer_info(data):
-        """نص العداد ولونه للجهاز المشغول (ساعات ودقائق)."""
+        """نص العداد ولونه للجهاز المشغول (ساعات:دقائق:ثواني)."""
         now = time.time()
         if data["mode"] == "fixed":
             remaining = data["end_time"] - now
@@ -804,7 +793,7 @@ def main(page: ft.Page):
             if devices[dev_name]["status"] == "Busy":
                 is_time_up = False
                 if devices[dev_name]["mode"] == "fixed":
-                    remaining = int(devices[dev_name]["end_time"] - time.time())
+                    remaining = devices[dev_name]["end_time"] - time.time()
                     if remaining <= 0:
                         is_time_up = True
 
@@ -933,8 +922,8 @@ def main(page: ft.Page):
                 show_snack("اكتب مبلغ صحيح", ft.Colors.RED_700)
                 return
 
-            # الوقت من المبلغ، بعد التقريب لأقرب ربع ساعة (والسعر بيتحسب من الوقت المقرّب)
-            seconds = round_to_quarter(amount / rate * 3600.0)
+            # الوقت المتوقع من المبلغ وسعر الساعة، ثم التقريب لأقرب 5 دقائق (والسعر بيتحسب من الوقت المقرّب)
+            seconds = round_to_five_minutes(amount / rate * 3600.0)
             start_session(device_name, seconds=seconds, players=p, rate=rate)
 
         dialog = ft.AlertDialog(
