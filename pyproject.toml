@@ -7,7 +7,7 @@ dependencies = [
 ]
 
 [tool.flet]
-product = "LevelUp Manage"
+product = "LevelUp Manager"
 org = "com.rashed"
 
 [tool.flet.app]
