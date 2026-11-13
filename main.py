@@ -12,6 +12,7 @@ SETTINGS_FILE = "settings.json"
 APP_VERSION = 2                      # 2 = التسعير بالساعة
 WHATSAPP_NUMBER = "963986687958"
 ROUND_STEP = 300                     # التقريب لأقرب 5 دقائق (بالثواني)
+PRICE_STEP = 500                     # تقريب السعر النهائي لأقرب 500
 
 default_settings = {
     "version": APP_VERSION,
@@ -33,8 +34,21 @@ def round_to_five_minutes(seconds):
 
 
 def price_for(seconds, rate):
-    """السعر = (الوقت المقرّب بالثواني / 3600) * سعر الساعة"""
-    return int(seconds / 3600.0 * rate + 0.5)
+    """السعر = (الوقت المقرّب بالثواني / 3600) * سعر الساعة، وبعدها التقريب لأقرب 500 (وأقل شي 500)."""
+    if seconds <= 0:
+        return 0
+    # حساب بأعداد صحيحة (بدون كسور عشرية) حتى يكون التقريب دقيق عند نص الخطوة
+    numerator = int(seconds) * int(rate)
+    denominator = 3600 * PRICE_STEP
+    steps = (2 * numerator + denominator) // (2 * denominator)
+    if steps == 0:
+        steps = 1
+    return steps * PRICE_STEP
+
+
+def report_day(session):
+    """اليوم اللي بينتمي إله التقرير: تاريخ إنهاء اليوم، أو تاريخ الجلسة للسجلات القديمة."""
+    return session.get("report_date") or session.get("date", "Unknown")
 
 
 def format_duration(seconds):
@@ -99,6 +113,21 @@ def backup_old_files():
                 os.replace(path, path + ".bak")
             except Exception:
                 pass
+
+
+def read_history_file():
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            try:
+                return json.load(f)
+            except Exception:
+                return []
+    return []
+
+
+def write_history_file(history):
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=4)
 
 
 def main(page: ft.Page):
@@ -338,13 +367,76 @@ def main(page: ft.Page):
 
         daily_data = {}
         for session in closed_sessions:
-            date = session.get("date", "Unknown")
+            date = report_day(session)
             if date not in daily_data:
                 daily_data[date] = {"sessions": [], "total_revenue": 0, "total_minutes": 0}
 
             daily_data[date]["sessions"].append(session)
             daily_data[date]["total_revenue"] += session.get("total_price", 0)
             daily_data[date]["total_minutes"] += session.get("played_minutes", 0)
+
+        def confirm_clear_reports(e):
+            def go_to_final_confirm(e):
+                page.pop_dialog()
+                page.update()
+
+                def do_clear(e):
+                    remaining = [s for s in read_history_file() if not s.get("is_closed", False)]
+                    write_history_file(remaining)
+                    page.pop_dialog()
+                    show_reports_view(None)
+
+                final_dialog = ft.AlertDialog(
+                    title=ft.Text("تأكيد أخير", color=ft.Colors.RED_400, weight=ft.FontWeight.BOLD),
+                    content=ft.Text("ما في رجعة بعد المسح. رح تنمسح كل التقارير نهائياً (السجل الحالي ما رح ينمس). متأكد؟", color=ft.Colors.WHITE),
+                    bgcolor="#1E1E1E",
+                    inset_padding=ft.Padding.all(50),
+                    actions=[
+                        ft.TextButton("إلغاء", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.GREY_400)),
+                        ft.TextButton("نعم، امسح الكل", on_click=do_clear, style=ft.ButtonStyle(color=ft.Colors.RED_400)),
+                    ],
+                    actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                )
+                page.show_dialog(final_dialog)
+                page.update()
+
+            first_dialog = ft.AlertDialog(
+                title=ft.Text("مسح سجل التقارير؟", color=ft.Colors.RED_400, weight=ft.FontWeight.BOLD),
+                content=ft.Text("رح يتم حذف كل التقارير الموجودة. (السجل الحالي ما رح ينمس)", color=ft.Colors.WHITE),
+                bgcolor="#1E1E1E",
+                inset_padding=ft.Padding.all(50),
+                actions=[
+                    ft.TextButton("إلغاء", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.GREY_400)),
+                    ft.TextButton("متابعة", on_click=go_to_final_confirm, style=ft.ButtonStyle(color=ft.Colors.RED_400)),
+                ],
+                actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            )
+            page.show_dialog(first_dialog)
+            page.update()
+
+        def confirm_delete_day(day_date):
+            def do_delete_day(e):
+                remaining = [
+                    s for s in read_history_file()
+                    if not (s.get("is_closed", False) and report_day(s) == day_date)
+                ]
+                write_history_file(remaining)
+                page.pop_dialog()
+                show_reports_view(None)
+
+            delete_dialog = ft.AlertDialog(
+                title=ft.Text("حذف التقرير؟", color=ft.Colors.RED_400, weight=ft.FontWeight.BOLD),
+                content=ft.Text(f"رح يتم حذف تقرير يوم {day_date} نهائياً. متأكد؟", color=ft.Colors.WHITE),
+                bgcolor="#1E1E1E",
+                inset_padding=ft.Padding.all(50),
+                actions=[
+                    ft.TextButton("إلغاء", on_click=close_dialog, style=ft.ButtonStyle(color=ft.Colors.GREY_400)),
+                    ft.TextButton("نعم، احذف", on_click=do_delete_day, style=ft.ButtonStyle(color=ft.Colors.RED_400)),
+                ],
+                actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            )
+            page.show_dialog(delete_dialog)
+            page.update()
 
         day_cards = []
         for date, info in sorted(daily_data.items(), reverse=True):
@@ -371,12 +463,20 @@ def main(page: ft.Page):
                 page.update()
 
             card = ft.Container(
-                content=ft.Column([
-                    ft.Text(date, size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                    ft.Divider(height=10, color=ft.Colors.GREY_800),
-                    ft.Text(f"الإيرادات: {format_price(info['total_revenue'])} ل.س", color=ft.Colors.GREEN_400, size=14, weight=ft.FontWeight.BOLD),
-                    ft.Text(f"الوقت: {time_str}", color=ft.Colors.BLUE_300, size=14, weight=ft.FontWeight.BOLD),
-                ], horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+                content=ft.Row([
+                    ft.Column([
+                        ft.Text(date, size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                        ft.Divider(height=10, color=ft.Colors.GREY_800),
+                        ft.Text(f"الإيرادات: {format_price(info['total_revenue'])} ل.س", color=ft.Colors.GREEN_400, size=14, weight=ft.FontWeight.BOLD),
+                        ft.Text(f"الوقت: {time_str}", color=ft.Colors.BLUE_300, size=14, weight=ft.FontWeight.BOLD),
+                    ], expand=True, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+                    ft.IconButton(
+                        icon=ft.Icons.DELETE,
+                        icon_color=ft.Colors.RED_400,
+                        tooltip="حذف التقرير",
+                        on_click=lambda e, d=date: confirm_delete_day(d),
+                    ),
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 bgcolor="#1E1E1E",
                 padding=15,
                 border_radius=10,
@@ -391,6 +491,9 @@ def main(page: ft.Page):
             ft.Row([
                 ft.IconButton(icon=ft.Icons.ARROW_BACK, on_click=show_devices_view, icon_color=ft.Colors.WHITE),
                 ft.Text("التقارير", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_300),
+            ], alignment=ft.MainAxisAlignment.CENTER),
+            ft.Row([
+                ft.Button("مسح سجل التقارير", bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE, on_click=confirm_clear_reports),
             ], alignment=ft.MainAxisAlignment.CENTER),
             ft.Divider(height=20, color="transparent"),
             ft.Column(day_cards, spacing=10)
@@ -414,9 +517,11 @@ def main(page: ft.Page):
         def confirm_end_day(e):
             def do_end_day(e):
                 new_history = []
+                today = time.strftime("%Y-%m-%d")
                 for s in history_data:
                     if not s.get("is_closed", False):
                         s["is_closed"] = True
+                        s["report_date"] = today
                     new_history.append(s)
 
                 with open(HISTORY_FILE, "w", encoding="utf-8") as f:
